@@ -1,0 +1,16 @@
+version: 2.1
+
+jobs:
+  hello:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Say hello
+          command: echo "CircleCI is connected to $CIRCLE_PROJECT_REPONAME on branch $CIRCLE_BRANCH"
+
+workflows:
+  main:
+    jobs:
+      - hello
