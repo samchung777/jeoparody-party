@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: jeoparody-party
+  datasource:
+    # Defaults point at the docker-compose MySQL; CI and Cloud Run override via env vars.
+    url: ${DB_URL:jdbc:mysql://localhost:3306/jeopardy}
+    username: ${DB_USER:jeopardy}
+    password: ${DB_PASSWORD:jeopardy}
+  flyway:
+    enabled: true
+
+server:
+  port: ${PORT:8080}   # Cloud Run injects PORT
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+trivia:
+  base-url: https://opentdb.com
+  import-on-startup: ${TRIVIA_IMPORT_ON_STARTUP:true}
+  questions-per-category: 50
+  request-delay: 5500ms   # Open Trivia DB allows one request per 5 seconds per IP
+  # Open Trivia DB category ids: General Knowledge, Books, Film, Music, Television, Video Games,
+  # Science & Nature, Computers, Sports, Geography, History, Animals
+  categories: [9, 10, 11, 12, 14, 15, 17, 18, 21, 22, 23, 27]

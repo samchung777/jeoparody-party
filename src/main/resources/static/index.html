@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jeoparody Party – Trivia Library</title>
+  <style>
+    :root { --blue: #060ce9; --gold: #ffcc00; }
+    body { font-family: system-ui, sans-serif; margin: 0; background: #0b0f3a; color: #fff; }
+    header { background: var(--blue); padding: 16px 24px; }
+    h1 { margin: 0; color: var(--gold); letter-spacing: 1px; }
+    main { padding: 24px; max-width: 960px; margin: auto; }
+    button { background: var(--gold); border: 0; padding: 8px 16px; font-weight: 700; cursor: pointer; border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    th, td { padding: 8px; border-bottom: 1px solid #2a2f6a; text-align: left; }
+    td.n { text-align: right; font-variant-numeric: tabular-nums; }
+    tr.cat { cursor: pointer; } tr.cat:hover { background: #1a1f5a; }
+    #status { margin-left: 12px; opacity: .85; }
+    .clue { padding: 6px 0 6px 24px; color: #cfd3ff; }
+    .clue b { color: var(--gold); }
+    footer { padding: 24px; font-size: 12px; opacity: .7; text-align: center; }
+    a { color: var(--gold); }
+  </style>
+</head>
+<body>
+<header><h1>JEOPARODY PARTY</h1></header>
+<main>
+  <button id="import">Import more trivia</button><span id="status"></span>
+  <table>
+    <thead><tr><th>Category</th><th class="n">Easy</th><th class="n">Medium</th><th class="n">Hard</th></tr></thead>
+    <tbody id="cats"><tr><td colspan="4">Loading…</td></tr></tbody>
+  </table>
+</main>
+<footer>
+  Trivia from <a href="https://opentdb.com">Open Trivia Database</a>, licensed
+  <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.
+</footer>
+<script>
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  async function loadCategories() {
+    const cats = await (await fetch('/api/categories')).json();
+    const body = document.getElementById('cats');
+    if (!cats.length) { body.innerHTML = '<tr><td colspan="4">No trivia yet – import is probably still running.</td></tr>'; return; }
+    body.innerHTML = cats.map(c =>
+      `<tr class="cat" data-id="${c.id}"><td>${esc(c.name)}</td><td class="n">${c.easy}</td><td class="n">${c.medium}</td><td class="n">${c.hard}</td></tr>`
+    ).join('');
+    body.querySelectorAll('tr.cat').forEach(r => r.addEventListener('click', () => toggleClues(r)));
+  }
+
+  async function toggleClues(row) {
+    const next = row.nextElementSibling;
+    if (next && next.classList.contains('clues')) { next.remove(); return; }
+    const clues = await (await fetch(`/api/categories/${row.dataset.id}/clues?limit=10`)).json();
+    const html = clues.map(c => `<div class="clue">[${c.difficulty}] ${esc(c.question)} → <b>${esc(c.answer)}</b></div>`).join('');
+    row.insertAdjacentHTML('afterend', `<tr class="clues"><td colspan="4">${html || '<div class="clue">No clues</div>'}</td></tr>`);
+  }
+
+  async function pollStatus() {
+    const s = await (await fetch('/api/admin/import')).json();
+    document.getElementById('status').textContent = s.running
+      ? `Importing… ${s.categoriesDone}/${s.categoriesTotal} categories, ${s.cluesAdded} new clues`
+      : (s.finishedAt ? `Last import added ${s.cluesAdded} clues${s.lastError ? ' (warning: ' + s.lastError + ')' : ''}` : '');
+    if (s.running) { loadCategories(); setTimeout(pollStatus, 3000); }
+    else { loadCategories(); }
+  }
+
+  document.getElementById('import').addEventListener('click', async () => {
+    await fetch('/api/admin/import', { method: 'POST' });
+    pollStatus();
+  });
+
+  pollStatus();
+</script>
+</body>
+</html>

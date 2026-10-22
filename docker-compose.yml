@@ -1,0 +1,22 @@
+# Local development database only. Passwords here are throwaway dev values.
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: jeoparody-mysql
+    environment:
+      MYSQL_DATABASE: jeopardy
+      MYSQL_USER: jeopardy
+      MYSQL_PASSWORD: jeopardy
+      MYSQL_ROOT_PASSWORD: rootpw
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ujeopardy", "-pjeopardy"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  mysql-data:
