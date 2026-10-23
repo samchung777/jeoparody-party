@@ -1,0 +1,4 @@
+# Keep build contexts tiny: the app image only needs the tested jar, the CI image only needs pom.xml.
+*
+!target/jeoparody-party.jar
+!pom.xml

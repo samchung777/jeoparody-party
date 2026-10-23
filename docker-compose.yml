@@ -18,5 +18,23 @@ services:
       timeout: 3s
       retries: 20
 
+  # Optional: run the packaged app image next to MySQL (build the jar first: .\mvnw.cmd package -DskipTests)
+  #   docker compose --profile app up --build
+  app:
+    profiles: ["app"]
+    build: .
+    image: jeoparody-party:local
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/jeopardy
+      DB_USER: jeopardy
+      DB_PASSWORD: jeopardy
+      TRIVIA_IMPORT_ON_STARTUP: "false"
+      TRIVIA_ENRICHMENT_ENABLED: "false"   # no Google credentials inside the container
+    ports:
+      - "8081:8080"
+
 volumes:
   mysql-data:

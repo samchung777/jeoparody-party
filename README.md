@@ -82,6 +82,26 @@ Integration tests use a separate `jeopardy_test` database (created automatically
 Trivia DB or Gemini. Override the connection with `TEST_DB_URL`, `TEST_DB_USER`, `TEST_DB_PASSWORD`.
 JUnit XML reports land in `target/surefire-reports` and `target/failsafe-reports`.
 
+## Containers and scripts
+
+| File | What it is |
+|---|---|
+| `Dockerfile` | App image. Packages the already-tested jar (layered for caching), runs as a non-root user. |
+| `ci/Dockerfile` | Custom CI image built by the pipeline: Java 21, Maven, MySQL client, jq, pre-warmed Maven cache. |
+| `scripts/ci-image-tag.sh` | Fingerprint tag for the CI image, so it is only rebuilt when `ci/Dockerfile` or `pom.xml` change. |
+| `scripts/wait-for-db.sh` | Waits until MySQL accepts connections and queries (CI sidecar start-up). |
+| `scripts/smoke-test.sh` | Checks a running instance: health, pages, game creation, trivia API. POSIX `sh` + `curl`. |
+| `scripts/test-image.sh` | Runs the app image next to a throwaway MySQL and smoke-tests it inside a private Docker network. |
+
+```bash
+# Git Bash / WSL / macOS / Linux
+./mvnw -B package -DskipTests
+docker build -t jeoparody-party:local .
+scripts/test-image.sh jeoparody-party:local
+```
+
+Or run the image locally on http://localhost:8081 with `docker compose --profile app up --build`.
+
 ## Trivia data
 
 Questions come from the [Open Trivia Database](https://opentdb.com), licensed under
