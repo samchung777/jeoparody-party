@@ -1,0 +1,12 @@
+# Integration tests run against a separate database so your real trivia is never touched.
+# Locally: the docker-compose MySQL (root/rootpw). In CircleCI: the MySQL sidecar container.
+spring:
+  datasource:
+    url: ${TEST_DB_URL:jdbc:mysql://localhost:3306/jeopardy_test?createDatabaseIfNotExist=true}
+    username: ${TEST_DB_USER:root}
+    password: ${TEST_DB_PASSWORD:rootpw}
+
+trivia:
+  import-on-startup: false     # never call Open Trivia DB from tests
+  enrichment:
+    enabled: false             # never call Gemini from tests

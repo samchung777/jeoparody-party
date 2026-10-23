@@ -66,6 +66,22 @@ prompt so Gemini reuses them and keywords build up enough clues to fill a board 
 
 Live games are held in memory (single instance) and pushed to every screen over a WebSocket (`/ws`).
 
+## Tests
+
+```powershell
+.\mvnw.cmd test      # unit tests only (no database)
+.\mvnw.cmd verify    # unit + integration tests (needs `docker compose up -d`)
+```
+
+| Kind | Files | What they cover |
+|---|---|---|
+| Unit (Surefire) | `*Test.java` | Game rules, board building, Daily Doubles, Final Jeopardy, what each screen may see, Open Trivia DB / Gemini parsing |
+| Integration (Failsafe) | `*IT.java` | Flyway migrations and SQL against real MySQL, clue feedback, a full game over WebSockets |
+
+Integration tests use a separate `jeopardy_test` database (created automatically) and never call Open
+Trivia DB or Gemini. Override the connection with `TEST_DB_URL`, `TEST_DB_USER`, `TEST_DB_PASSWORD`.
+JUnit XML reports land in `target/surefire-reports` and `target/failsafe-reports`.
+
 ## Trivia data
 
 Questions come from the [Open Trivia Database](https://opentdb.com), licensed under
