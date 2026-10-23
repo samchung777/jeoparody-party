@@ -83,7 +83,9 @@
   async function loadKeywords() {
     const kws = await (await fetch('/api/keywords')).json();
     document.getElementById('keywords').innerHTML = kws.length
-      ? kws.map(k => `<span class="tag">${esc(k.name)} <small>${k.total}</small></span>`).join('')
+      ? kws.map(k => k.title
+          ? `<span class="tag"><b style="color:var(--gold)">${esc(k.title)}</b> <small>${esc(k.name)} · ${k.total}</small></span>`
+          : `<span class="tag">${esc(k.name)} <small>${k.total}</small></span>`).join('')
       : 'None yet – waiting for Gemini to tag clues.';
   }
 

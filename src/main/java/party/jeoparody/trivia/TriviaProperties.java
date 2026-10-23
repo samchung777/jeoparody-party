@@ -12,6 +12,7 @@ public record TriviaProperties(
         @DefaultValue("https://opentdb.com") String baseUrl,
         @DefaultValue("false") boolean importOnStartup,
         @DefaultValue("50") int questionsPerCategory,
+        @DefaultValue("300") int maxQuestionsPerCategory,
         @DefaultValue("5500ms") Duration requestDelay,
         List<Integer> categories) {
 

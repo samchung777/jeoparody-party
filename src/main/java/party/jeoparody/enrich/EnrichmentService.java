@@ -2,6 +2,7 @@ package party.jeoparody.enrich;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -25,12 +26,15 @@ public class EnrichmentService {
 
     private static final Logger log = LoggerFactory.getLogger(EnrichmentService.class);
     private static final int KEYWORD_HINTS = 150;
+    private static final int MIN_CLUES_FOR_TITLE = 5;
+    private static final int TITLE_BATCH = 25;
     private static final int MAX_CONSECUTIVE_FAILURES = 8;
     private static final long PAUSE_BETWEEN_BATCHES_MS = 2_000;
     private static final long FIRST_BACKOFF_MS = 15_000;
     private static final long MAX_BACKOFF_MS = 300_000;
 
     private final ClueEnricher enricher;
+    private final CategoryTitler titler;
     private final EnrichmentRepository repository;
     private final EnrichmentProperties props;
     private final AtomicBoolean queued = new AtomicBoolean(false);
@@ -41,8 +45,10 @@ public class EnrichmentService {
         return t;
     });
 
-    public EnrichmentService(ClueEnricher enricher, EnrichmentRepository repository, EnrichmentProperties props) {
+    public EnrichmentService(ClueEnricher enricher, CategoryTitler titler, EnrichmentRepository repository,
+            EnrichmentProperties props) {
         this.enricher = enricher;
+        this.titler = titler;
         this.repository = repository;
         this.props = props;
         this.status = new AtomicReference<>(EnrichmentStatus.initial(props.enabled()));
@@ -75,59 +81,103 @@ public class EnrichmentService {
 
     private void run() {
         queued.set(false);
+        enrichClues();
+        int removed = repository.deleteUnusedKeywords();
+        if (removed > 0) {
+            log.info("Removed {} keywords no longer used by any clue", removed);
+        }
+        titleKeywords();
+    }
+
+    /** Phase 1: Jeopardy wording + keywords for clues not yet at the current prompt version. */
+    private void enrichClues() {
         long remaining = repository.countPending(props.maxAttempts());
         if (remaining == 0) {
             return;
         }
         status.updateAndGet(s -> s.started(remaining));
-        log.info("Enriching {} clues with {} ({})", remaining, props.model(), props.location());
-
-        int consecutiveFailures = 0;
+        log.info("Enriching {} clues with {} ({}), prompt v{}", remaining, props.model(), props.location(),
+                EnrichmentPrompt.VERSION);
         try {
-            while (consecutiveFailures < MAX_CONSECUTIVE_FAILURES && !Thread.currentThread().isInterrupted()) {
+            processUntilDone(() -> {
                 List<ClueToEnrich> batch = repository.findPending(props.batchSize(), props.maxAttempts());
                 if (batch.isEmpty()) {
-                    break;
+                    return false;
                 }
-                try {
-                    List<EnrichedClue> results = enricher.enrich(batch, repository.topKeywords(KEYWORD_HINTS));
-                    Set<Long> saved = new HashSet<>();
-                    for (EnrichedClue e : results) {
-                        repository.save(e);
-                        saved.add(e.id());
-                    }
-                    // Only clues Gemini answered for but couldn't convert count as a failed attempt.
-                    // Outages, auth and quota errors (the catch below) never burn a clue's attempts.
-                    repository.recordAttempt(batch.stream().filter(c -> !saved.contains(c.id())).toList());
-                    int enriched = saved.size();
-                    int skipped = batch.size() - enriched;
-                    long left = repository.countPending(props.maxAttempts());
-                    status.updateAndGet(s -> s.batchDone(enriched, skipped, left));
-                    log.info("Enriched {}/{} clues in batch ({} remaining)", enriched, batch.size(), left);
-                    consecutiveFailures = 0;
-                    Thread.sleep(PAUSE_BETWEEN_BATCHES_MS); // stay under Vertex AI's per-minute quota
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                } catch (Exception e) {
-                    consecutiveFailures++;
-                    status.updateAndGet(s -> s.withError(e.getMessage()));
-                    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                        log.warn("Enrichment stopped after {} failures in a row: {}", consecutiveFailures, e.getMessage());
-                        break;
-                    }
-                    long backoff = backoffMillis(consecutiveFailures);
-                    log.warn("Enrichment batch failed ({}/{}), retrying in {}s: {}", consecutiveFailures,
-                            MAX_CONSECUTIVE_FAILURES, backoff / 1000, e.getMessage());
-                    try {
-                        Thread.sleep(backoff);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                    }
+                List<EnrichedClue> results = enricher.enrich(batch, repository.topKeywords(KEYWORD_HINTS));
+                Set<Long> saved = new HashSet<>();
+                for (EnrichedClue e : results) {
+                    repository.save(e);
+                    saved.add(e.id());
                 }
-            }
+                // Only clues Gemini answered for but couldn't convert count as a failed attempt.
+                // Outages, auth and quota errors never burn a clue's attempts.
+                repository.recordAttempt(batch.stream().filter(c -> !saved.contains(c.id())).toList());
+                int enriched = saved.size();
+                int skipped = batch.size() - enriched;
+                long left = repository.countPending(props.maxAttempts());
+                status.updateAndGet(s -> s.batchDone(enriched, skipped, left));
+                log.info("Enriched {}/{} clues in batch ({} remaining)", enriched, batch.size(), left);
+                return true;
+            });
         } finally {
             long left = repository.countPending(props.maxAttempts());
             log.info("Enrichment finished: {}", status.updateAndGet(s -> s.finished(left)));
+        }
+    }
+
+    /** Phase 2: a themed, punny board title for every keyword with enough clues. */
+    private void titleKeywords() {
+        processUntilDone(() -> {
+            List<KeywordToTitle> batch = repository.findUntitledKeywords(MIN_CLUES_FOR_TITLE, TITLE_BATCH);
+            if (batch.isEmpty()) {
+                return false;
+            }
+            Map<Long, String> titles = titler.title(batch);
+            for (KeywordToTitle k : batch) {
+                // Fall back to the keyword itself so one odd reply can't stall the queue.
+                repository.saveTitle(k.id(), titles.getOrDefault(k.id(), k.keyword()));
+            }
+            log.info("Titled {} categories (e.g. \"{}\" -> \"{}\")", batch.size(), batch.get(0).keyword(),
+                    titles.getOrDefault(batch.get(0).id(), batch.get(0).keyword()));
+            return true;
+        });
+    }
+
+    /** One unit of Gemini work; returns false when there is nothing left to do. */
+    @FunctionalInterface
+    private interface Step {
+        boolean runOnce() throws Exception;
+    }
+
+    /** Repeats a step until it reports no more work, backing off on failures (e.g. HTTP 429). */
+    private void processUntilDone(Step step) {
+        int consecutiveFailures = 0;
+        while (!Thread.currentThread().isInterrupted()) {
+            try {
+                if (!step.runOnce()) {
+                    return;
+                }
+                consecutiveFailures = 0;
+                Thread.sleep(PAUSE_BETWEEN_BATCHES_MS); // stay under Vertex AI's per-minute quota
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                consecutiveFailures++;
+                status.updateAndGet(s -> s.withError(e.getMessage()));
+                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                    log.warn("Gemini work stopped after {} failures in a row: {}", consecutiveFailures, e.getMessage());
+                    return;
+                }
+                long backoff = backoffMillis(consecutiveFailures);
+                log.warn("Gemini call failed ({}/{}), retrying in {}s: {}", consecutiveFailures,
+                        MAX_CONSECUTIVE_FAILURES, backoff / 1000, e.getMessage());
+                try {
+                    Thread.sleep(backoff);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+            }
         }
     }
 

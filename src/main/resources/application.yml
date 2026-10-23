@@ -21,11 +21,13 @@ management:
 trivia:
   base-url: https://opentdb.com
   import-on-startup: ${TRIVIA_IMPORT_ON_STARTUP:true}
-  questions-per-category: 50
+  questions-per-category: 50          # page size per request (Open Trivia DB max is 50)
+  max-questions-per-category: 300     # stop paging a category after this many
   request-delay: 5500ms   # Open Trivia DB allows one request per 5 seconds per IP
-  # Open Trivia DB category ids: General Knowledge, Books, Film, Music, Television, Video Games,
-  # Science & Nature, Computers, Sports, Geography, History, Animals
-  categories: [9, 10, 11, 12, 14, 15, 17, 18, 21, 22, 23, 27]
+  # Pop-culture focused Open Trivia DB category ids:
+  # 10 Books, 11 Film, 12 Music, 13 Musicals & Theatres, 14 Television, 15 Video Games, 16 Board Games,
+  # 26 Celebrities, 29 Comics, 31 Japanese Anime & Manga, 32 Cartoon & Animations
+  categories: [11, 12, 13, 14, 15, 26, 32, 31, 29, 16, 10]
   enrichment:
     # Rewrites clues into Jeopardy form and tags them with keywords using Gemini on Vertex AI.
     # Locally this uses your `gcloud auth application-default login`; on Cloud Run, the service account.

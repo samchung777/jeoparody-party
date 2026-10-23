@@ -32,8 +32,18 @@ public class OpenTdbClient {
         return OpenTdbParser.parseCategories(get("/api_category.php"));
     }
 
-    public JsonNode fetchQuestions(int categoryId, int amount) throws IOException, InterruptedException {
-        return get("/api.php?amount=" + amount + "&category=" + categoryId + "&type=multiple&encode=url3986");
+    /**
+     * Requests a session token. With a token, Open Trivia DB never returns the same question twice,
+     * which lets us page through a whole category. Returns null if a token can't be obtained.
+     */
+    public String requestToken() throws IOException, InterruptedException {
+        JsonNode root = get("/api_token.php?command=request");
+        return OpenTdbParser.responseCode(root) == OpenTdbParser.SUCCESS ? root.path("token").asText(null) : null;
+    }
+
+    public JsonNode fetchQuestions(int categoryId, int amount, String token) throws IOException, InterruptedException {
+        String path = "/api.php?amount=" + amount + "&category=" + categoryId + "&type=multiple&encode=url3986";
+        return get(token == null ? path : path + "&token=" + token);
     }
 
     private JsonNode get(String path) throws IOException, InterruptedException {

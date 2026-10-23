@@ -77,8 +77,9 @@ public class TriviaImportService {
     private void runImport(List<Integer> categoryIds) {
         try {
             Map<Integer, String> names = fetchCategoryNames();
+            String token = requestToken();
             for (int sourceId : categoryIds) {
-                importCategory(sourceId, names);
+                importCategory(sourceId, names, token);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -100,52 +101,79 @@ public class TriviaImportService {
         }
     }
 
-    private void importCategory(int sourceId, Map<Integer, String> names) throws InterruptedException {
+    private String requestToken() throws InterruptedException {
         try {
-            List<ParsedQuestion> questions = fetchQuestions(sourceId);
-            String rawName = names.getOrDefault(sourceId,
-                    questions.isEmpty() ? "Category " + sourceId : questions.get(0).category());
-            long categoryId = repository.upsertCategory(SOURCE, sourceId, OpenTdbParser.displayName(rawName));
+            String token = client.requestToken();
+            pause();
+            if (token == null) {
+                log.warn("No Open Trivia DB session token; importing one random page per category");
+            }
+            return token;
+        } catch (IOException e) {
+            log.warn("Could not get an Open Trivia DB session token: {}", e.getMessage());
+            return null;
+        }
+    }
 
-            int added = 0;
-            for (ParsedQuestion q : questions) {
-                if (repository.insertClueIfNew(categoryId, q.difficulty(), q.question(), q.answer())) {
-                    added++;
+    /**
+     * Pages through a category (50 questions per request) until it is exhausted or
+     * trivia.max-questions-per-category is reached, saving each page as it arrives.
+     */
+    private void importCategory(int sourceId, Map<Integer, String> names, String token) throws InterruptedException {
+        int amount = Math.max(MIN_BATCH, props.questionsPerCategory());
+        int fetched = 0;
+        int added = 0;
+        int rateLimited = 0;
+        Long categoryId = null;
+        String rawName = names.get(sourceId);
+        try {
+            while (fetched < props.maxQuestionsPerCategory()) {
+                JsonNode root = client.fetchQuestions(sourceId, amount, token);
+                pause();
+                int code = OpenTdbParser.responseCode(root);
+                if (code == OpenTdbParser.SUCCESS) {
+                    JsonNode results = root.path("results");
+                    if (results.isEmpty()) {
+                        break;
+                    }
+                    fetched += results.size();
+                    if (categoryId == null) {
+                        if (rawName == null) {
+                            rawName = OpenTdbParser.decode(results.path(0).path("category").asText("Category " + sourceId));
+                        }
+                        categoryId = repository.upsertCategory(SOURCE, sourceId, OpenTdbParser.displayName(rawName));
+                    }
+                    for (ParsedQuestion q : OpenTdbParser.parseQuestions(root)) {
+                        if (repository.insertClueIfNew(categoryId, q.difficulty(), q.question(), q.answer())) {
+                            added++;
+                        }
+                    }
+                    if (token == null) {
+                        break; // without a token every page is random, so one page is enough
+                    }
+                } else if (code == OpenTdbParser.NO_RESULTS) {
+                    // Fewer questions left than requested: ask for a smaller page, then stop.
+                    if (amount <= MIN_BATCH) {
+                        break;
+                    }
+                    amount = Math.max(MIN_BATCH, amount / 2);
+                } else if (code == OpenTdbParser.TOKEN_EMPTY) {
+                    break; // the token has seen every question in this category
+                } else if (code == OpenTdbParser.RATE_LIMITED && ++rateLimited <= MAX_ATTEMPTS) {
+                    pause();
+                } else {
+                    throw new IOException("Open Trivia DB response_code " + code);
                 }
             }
             final int addedForCategory = added;
             status.updateAndGet(s -> s.categoryDone(addedForCategory));
-            log.info("Imported {} new clues for category {} ({})", added, sourceId, rawName);
+            log.info("Imported {} new clues for category {} ({}) from {} fetched", added, sourceId, rawName, fetched);
         } catch (IOException | RuntimeException e) {
             log.warn("Import failed for category {}: {}", sourceId, e.getMessage());
-            status.updateAndGet(s -> s.withError("Category " + sourceId + ": " + e.getMessage()).categoryDone(0));
+            final int addedForCategory = added;
+            status.updateAndGet(s -> s.withError("Category " + sourceId + ": " + e.getMessage())
+                    .categoryDone(addedForCategory));
         }
-    }
-
-    /** Asks for a full batch, halving the amount when the category doesn't have that many questions. */
-    private List<ParsedQuestion> fetchQuestions(int sourceId) throws IOException, InterruptedException {
-        int amount = Math.max(MIN_BATCH, props.questionsPerCategory());
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            JsonNode root = client.fetchQuestions(sourceId, amount);
-            pause();
-            int code = OpenTdbParser.responseCode(root);
-            switch (code) {
-                case OpenTdbParser.SUCCESS:
-                    return OpenTdbParser.parseQuestions(root);
-                case OpenTdbParser.NO_RESULTS:
-                    if (amount <= MIN_BATCH) {
-                        return List.of();
-                    }
-                    amount = Math.max(MIN_BATCH, amount / 2);
-                    break;
-                case OpenTdbParser.RATE_LIMITED:
-                    pause(); // wait an extra interval, then retry
-                    break;
-                default:
-                    throw new IOException("Open Trivia DB response_code " + code);
-            }
-        }
-        throw new IOException("Gave up after " + MAX_ATTEMPTS + " attempts");
     }
 
     private void pause() throws InterruptedException {

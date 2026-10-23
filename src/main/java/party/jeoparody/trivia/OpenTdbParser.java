@@ -21,6 +21,8 @@ public final class OpenTdbParser {
     /** Response codes documented by Open Trivia DB. */
     public static final int SUCCESS = 0;
     public static final int NO_RESULTS = 1;
+    public static final int TOKEN_NOT_FOUND = 3;
+    public static final int TOKEN_EMPTY = 4;
     public static final int RATE_LIMITED = 5;
 
     private static final Set<String> DIFFICULTIES = Set.of("easy", "medium", "hard");

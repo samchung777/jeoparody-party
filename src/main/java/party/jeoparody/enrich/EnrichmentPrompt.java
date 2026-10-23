@@ -18,6 +18,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  */
 public final class EnrichmentPrompt {
 
+    /** Bump when the prompt changes so existing clues are re-tagged. */
+    public static final int VERSION = 2;
     static final int MAX_KEYWORDS = 3;
     static final int MAX_KEYWORD_LENGTH = 40;
     private static final Pattern RESPONSE_FORM = Pattern.compile(
@@ -40,19 +42,31 @@ public final class EnrichmentPrompt {
         }
         String keywords = existingKeywords.isEmpty() ? "(none yet)" : String.join(", ", existingKeywords);
         return """
-                You are a writer for the TV quiz show Jeopardy!. Convert each trivia item below.
+                You are a writer for the TV quiz show Jeopardy! preparing a pop-culture themed game.
+                Convert each trivia item below.
 
                 For every item return:
                 - "id": the item's id, unchanged.
                 - "clue": the fact rewritten as a Jeopardy!-style statement that the contestant must respond to.
-                  Use "this"/"these" phrasing (e.g. "This planet is known as the Red Planet").
+                  Use "this"/"these" phrasing (e.g. "This 1985 film sent Marty McFly back in time in a DeLorean").
                   Never include the answer in the clue. Keep it under 30 words. Do not add facts that are not
                   implied by the question and answer.
-                - "response": the correct answer phrased as a question, e.g. "What is Mars?", "Who is Ada Lovelace?",
-                  "What are the Andes?", "Where is Peru?". Keep the answer's wording.
-                - "keywords": 2 or 3 subject keywords that could serve as a Jeopardy! category name for this clue:
-                  one broad subject (e.g. "Astronomy", "World Capitals", "80s Music") and one or two narrower ones.
-                  Title Case, 1-3 words, no punctuation, and never the answer itself.
+                - "response": the correct answer phrased as a question, e.g. "What is Mars?", "Who is Lin-Manuel Miranda?",
+                  "What is Hamilton?", "What are the Beatles?". Keep the answer's wording.
+                - "keywords": exactly 3 keywords that could each serve as a Jeopardy! category for this clue,
+                  ordered from broadest to most specific. Title Case, 1-4 words, no punctuation except "&",
+                  and never the answer itself.
+                    1. A THEME that many clues could share, as specific as the clue allows. Prefer medium + decade
+                       or medium + genre: "80s Movies", "90s Music", "2000s TV", "Broadway Musicals",
+                       "Classic Rock", "90s Hip Hop", "Sitcoms", "Animated Movies", "Retro Video Games",
+                       "Anime", "Superheroes", "Board Games", "Celebrities", "Memes & Internet Culture".
+                       Write decades as "60s", "70s", "80s", "90s", "2000s", "2010s", "2020s" and only use a decade
+                       when you are confident of the year. Non-pop-culture clues get a plain subject
+                       ("World Geography", "Space").
+                    2. A franchise, creator, artist or series: "Star Wars", "Pokemon", "Disney Animation",
+                       "Taylor Swift", "Nintendo", "Stephen King", "Marvel", "The Simpsons".
+                    3. Something more specific still: a character, album, era, award or sub-genre
+                       ("Pixar Villains", "Grammy Winners", "Tony Award Winners", "Boy Bands").
                   REUSE an existing keyword whenever one fits, so categories collect enough clues.
 
                 Existing keywords: %s

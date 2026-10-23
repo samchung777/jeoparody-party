@@ -77,19 +77,20 @@ public class TriviaRepository {
     /** Keywords with at least {@code minClues} enriched clues, most-used first. */
     public List<KeywordStats> keywordStats(int minClues, int limit) {
         return jdbc.query("""
-                SELECT k.id, k.name, COUNT(*) AS total,
+                SELECT k.id, k.name, k.title, COUNT(*) AS total,
                        SUM(cl.difficulty = 'easy')   AS easy,
                        SUM(cl.difficulty = 'medium') AS medium,
                        SUM(cl.difficulty = 'hard')   AS hard
                 FROM keyword k
                 JOIN clue_keyword ck ON ck.keyword_id = k.id
                 JOIN clue cl ON cl.id = ck.clue_id
-                GROUP BY k.id, k.name
+                GROUP BY k.id, k.name, k.title
                 HAVING COUNT(*) >= ?
                 ORDER BY total DESC, k.name
                 LIMIT ?
                 """,
-                (rs, i) -> new KeywordStats(rs.getLong("id"), rs.getString("name"), rs.getInt("total"),
+                (rs, i) -> new KeywordStats(rs.getLong("id"), rs.getString("name"), rs.getString("title"),
+                        rs.getInt("total"),
                         rs.getInt("easy"), rs.getInt("medium"), rs.getInt("hard")),
                 minClues, limit);
     }
