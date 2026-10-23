@@ -8,7 +8,14 @@ pipeline to Google Cloud Run.
 
 ## Run it locally
 
-Prerequisites: JDK 21, Docker Desktop (running).
+Prerequisites: JDK 21, Docker Desktop (running), and the gcloud CLI signed in with
+Application Default Credentials (used to call Gemini on Vertex AI):
+
+```powershell
+gcloud services enable aiplatform.googleapis.com
+gcloud auth application-default login
+gcloud auth application-default set-quota-project jeoparody-party
+```
 
 ```powershell
 docker compose up -d          # starts MySQL on localhost:3306
@@ -26,7 +33,18 @@ Useful endpoints:
 | `GET /api/categories/{id}/clues` | Sample clues for a category |
 | `POST /api/admin/import` | Import more trivia (optional `?categories=9,22`) |
 | `GET /api/admin/import` | Import progress |
+| `GET /api/keywords` | Keywords with 5+ clues (eligible as board categories) |
+| `POST /api/admin/enrich` | Convert remaining clues to Jeopardy format with Gemini |
+| `GET /api/admin/enrich` | Conversion progress |
 | `GET /actuator/health` | Health check |
+
+## How clues become Jeopardy categories
+
+After import, a background job sends clues to Gemini in batches of 20. For each clue it returns a
+Jeopardy-style clue ("This planet is known as the Red Planet"), the response in question form
+("What is Mars?") and 2–3 subject keywords. The current most-used keywords are fed back into each
+prompt so Gemini reuses them and keywords build up enough clues to fill a board column. Set
+`TRIVIA_ENRICHMENT_ENABLED=false` to turn this off (CI does).
 
 ## Trivia data
 

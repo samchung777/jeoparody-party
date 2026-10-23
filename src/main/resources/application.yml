@@ -26,3 +26,12 @@ trivia:
   # Open Trivia DB category ids: General Knowledge, Books, Film, Music, Television, Video Games,
   # Science & Nature, Computers, Sports, Geography, History, Animals
   categories: [9, 10, 11, 12, 14, 15, 17, 18, 21, 22, 23, 27]
+  enrichment:
+    # Rewrites clues into Jeopardy form and tags them with keywords using Gemini on Vertex AI.
+    # Locally this uses your `gcloud auth application-default login`; on Cloud Run, the service account.
+    enabled: ${TRIVIA_ENRICHMENT_ENABLED:true}
+    project: ${GOOGLE_CLOUD_PROJECT:jeoparody-party}
+    location: ${GEMINI_LOCATION:global}
+    model: ${GEMINI_MODEL:gemini-3.5-flash}
+    batch-size: 20
+    max-attempts: 3

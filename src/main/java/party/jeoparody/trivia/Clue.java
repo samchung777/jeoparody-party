@@ -1,5 +1,18 @@
 package party.jeoparody.trivia;
 
-/** A stored clue. In Jeopardy terms, {@code question} is shown on the board and {@code answer} is the correct response. */
-public record Clue(long id, long categoryId, String difficulty, String question, String answer) {
+import java.util.List;
+
+/**
+ * A stored clue. {@code question}/{@code answer} are the original Open Trivia DB text;
+ * {@code jeopardyClue}/{@code jeopardyResponse} are the Gemini rewrite (null until enriched).
+ */
+public record Clue(
+        long id,
+        long categoryId,
+        String difficulty,
+        String question,
+        String answer,
+        String jeopardyClue,
+        String jeopardyResponse,
+        List<String> keywords) {
 }

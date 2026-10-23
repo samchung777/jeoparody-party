@@ -56,15 +56,46 @@ public class TriviaRepository {
 
     public List<Clue> findClues(long categoryId, int limit) {
         return jdbc.query("""
-                SELECT id, category_id, difficulty, question, answer
-                FROM clue
-                WHERE category_id = ?
-                ORDER BY FIELD(difficulty, 'easy', 'medium', 'hard'), id
+                SELECT cl.id, cl.category_id, cl.difficulty, cl.question, cl.answer,
+                       cl.jeopardy_clue, cl.jeopardy_response,
+                       GROUP_CONCAT(k.name ORDER BY k.name SEPARATOR '|') AS keywords
+                FROM clue cl
+                LEFT JOIN clue_keyword ck ON ck.clue_id = cl.id
+                LEFT JOIN keyword k ON k.id = ck.keyword_id
+                WHERE cl.category_id = ?
+                GROUP BY cl.id
+                ORDER BY FIELD(cl.difficulty, 'easy', 'medium', 'hard'), cl.id
                 LIMIT ?
                 """,
                 (rs, i) -> new Clue(rs.getLong("id"), rs.getLong("category_id"), rs.getString("difficulty"),
-                        rs.getString("question"), rs.getString("answer")),
+                        rs.getString("question"), rs.getString("answer"),
+                        rs.getString("jeopardy_clue"), rs.getString("jeopardy_response"),
+                        splitKeywords(rs.getString("keywords"))),
                 categoryId, limit);
+    }
+
+    /** Keywords with at least {@code minClues} enriched clues, most-used first. */
+    public List<KeywordStats> keywordStats(int minClues, int limit) {
+        return jdbc.query("""
+                SELECT k.id, k.name, COUNT(*) AS total,
+                       SUM(cl.difficulty = 'easy')   AS easy,
+                       SUM(cl.difficulty = 'medium') AS medium,
+                       SUM(cl.difficulty = 'hard')   AS hard
+                FROM keyword k
+                JOIN clue_keyword ck ON ck.keyword_id = k.id
+                JOIN clue cl ON cl.id = ck.clue_id
+                GROUP BY k.id, k.name
+                HAVING COUNT(*) >= ?
+                ORDER BY total DESC, k.name
+                LIMIT ?
+                """,
+                (rs, i) -> new KeywordStats(rs.getLong("id"), rs.getString("name"), rs.getInt("total"),
+                        rs.getInt("easy"), rs.getInt("medium"), rs.getInt("hard")),
+                minClues, limit);
+    }
+
+    private static List<String> splitKeywords(String joined) {
+        return joined == null || joined.isEmpty() ? List.of() : List.of(joined.split("\\|"));
     }
 
     public long countClues() {

@@ -18,6 +18,11 @@
     #status { margin-left: 12px; opacity: .85; }
     .clue { padding: 6px 0 6px 24px; color: #cfd3ff; }
     .clue b { color: var(--gold); }
+    .clue .orig { font-size: 12px; opacity: .6; }
+    .tag { display: inline-block; background: #1a1f5a; border: 1px solid #3a3f8a; border-radius: 12px;
+           padding: 2px 10px; margin: 3px; font-size: 13px; }
+    .tag small { opacity: .7; }
+    h2 { color: var(--gold); margin-top: 32px; }
     footer { padding: 24px; font-size: 12px; opacity: .7; text-align: center; }
     a { color: var(--gold); }
   </style>
@@ -26,6 +31,11 @@
 <header><h1>JEOPARODY PARTY</h1></header>
 <main>
   <button id="import">Import more trivia</button><span id="status"></span>
+  <div style="margin-top:8px"><button id="enrichBtn">Convert remaining clues</button>
+    <span id="enrich" style="margin-left:12px;opacity:.85"></span></div>
+  <h2>Keywords ready for the board <small style="font-size:14px;opacity:.7">(5+ clues)</small></h2>
+  <div id="keywords">Loading…</div>
+  <h2>Categories</h2>
   <table>
     <thead><tr><th>Category</th><th class="n">Easy</th><th class="n">Medium</th><th class="n">Hard</th></tr></thead>
     <tbody id="cats"><tr><td colspan="4">Loading…</td></tr></tbody>
@@ -52,7 +62,12 @@
     const next = row.nextElementSibling;
     if (next && next.classList.contains('clues')) { next.remove(); return; }
     const clues = await (await fetch(`/api/categories/${row.dataset.id}/clues?limit=10`)).json();
-    const html = clues.map(c => `<div class="clue">[${c.difficulty}] ${esc(c.question)} → <b>${esc(c.answer)}</b></div>`).join('');
+    const html = clues.map(c => c.jeopardyClue
+      ? `<div class="clue">[${c.difficulty}] ${esc(c.jeopardyClue)} → <b>${esc(c.jeopardyResponse)}</b>
+           ${c.keywords.map(k => `<span class="tag">${esc(k)}</span>`).join('')}
+           <div class="orig">Original: ${esc(c.question)} → ${esc(c.answer)}</div></div>`
+      : `<div class="clue">[${c.difficulty}] ${esc(c.question)} → <b>${esc(c.answer)}</b> <span class="orig">(not converted yet)</span></div>`
+    ).join('');
     row.insertAdjacentHTML('afterend', `<tr class="clues"><td colspan="4">${html || '<div class="clue">No clues</div>'}</td></tr>`);
   }
 
@@ -65,12 +80,36 @@
     else { loadCategories(); }
   }
 
+  async function loadKeywords() {
+    const kws = await (await fetch('/api/keywords')).json();
+    document.getElementById('keywords').innerHTML = kws.length
+      ? kws.map(k => `<span class="tag">${esc(k.name)} <small>${k.total}</small></span>`).join('')
+      : 'None yet – waiting for Gemini to tag clues.';
+  }
+
+  async function pollEnrichment() {
+    const s = await (await fetch('/api/admin/enrich')).json();
+    const el = document.getElementById('enrich');
+    if (!s.enabled) { el.textContent = 'Gemini enrichment is turned off.'; return; }
+    el.textContent = s.running
+      ? `Gemini is converting clues… ${s.cluesEnriched} done, ${s.remaining} remaining`
+      : `Gemini conversion idle – ${s.remaining} clues waiting${s.lastError ? ' (last error: ' + s.lastError + ')' : ''}`;
+    loadKeywords();
+    setTimeout(pollEnrichment, s.running ? 4000 : 15000);
+  }
+
+  document.getElementById('enrichBtn').addEventListener('click', async () => {
+    await fetch('/api/admin/enrich', { method: 'POST' });
+    setTimeout(pollEnrichment, 1000);
+  });
+
   document.getElementById('import').addEventListener('click', async () => {
     await fetch('/api/admin/import', { method: 'POST' });
     pollStatus();
   });
 
   pollStatus();
+  pollEnrichment();
 </script>
 </body>
 </html>

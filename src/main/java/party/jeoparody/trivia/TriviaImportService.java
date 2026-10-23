@@ -15,6 +15,8 @@ import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import party.jeoparody.enrich.EnrichmentService;
+
 import jakarta.annotation.PreDestroy;
 
 /**
@@ -33,6 +35,7 @@ public class TriviaImportService {
     private final OpenTdbClient client;
     private final TriviaRepository repository;
     private final TriviaProperties props;
+    private final EnrichmentService enrichment;
     private final AtomicReference<ImportStatus> status = new AtomicReference<>(ImportStatus.idle());
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "trivia-import");
@@ -40,10 +43,12 @@ public class TriviaImportService {
         return t;
     });
 
-    public TriviaImportService(OpenTdbClient client, TriviaRepository repository, TriviaProperties props) {
+    public TriviaImportService(OpenTdbClient client, TriviaRepository repository, TriviaProperties props,
+            EnrichmentService enrichment) {
         this.client = client;
         this.repository = repository;
         this.props = props;
+        this.enrichment = enrichment;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -80,6 +85,7 @@ public class TriviaImportService {
             status.updateAndGet(s -> s.withError("Import interrupted"));
         } finally {
             log.info("Trivia import finished: {}", status.updateAndGet(ImportStatus::finished));
+            enrichment.requestRun(); // convert the new clues to Jeopardy format and tag keywords
         }
     }
 
