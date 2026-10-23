@@ -39,6 +39,9 @@ public final class EnrichmentPrompt {
             n.put("difficulty", c.difficulty());
             n.put("question", c.question());
             n.put("answer", c.answer());
+            if (c.hostFeedback() != null && !c.hostFeedback().isBlank()) {
+                n.put("hostFeedback", c.hostFeedback());
+            }
         }
         String keywords = existingKeywords.isEmpty() ? "(none yet)" : String.join(", ", existingKeywords);
         return """
@@ -68,6 +71,8 @@ public final class EnrichmentPrompt {
                     3. Something more specific still: a character, album, era, award or sub-genre
                        ("Pixar Villains", "Grammy Winners", "Tony Award Winners", "Boy Bands").
                   REUSE an existing keyword whenever one fits, so categories collect enough clues.
+                - If an item has "hostFeedback", a game host complained about the previous version of this clue.
+                  Write a clearly better clue that fixes the problem they describe.
 
                 Existing keywords: %s
 

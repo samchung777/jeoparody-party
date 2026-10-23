@@ -23,6 +23,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import party.jeoparody.feedback.ClueFeedbackService;
+
 /**
  * One WebSocket endpoint (/ws) for every screen. Connect with:
  * <ul>
@@ -56,11 +58,13 @@ public class GameSocketHandler extends TextWebSocketHandler {
     }
 
     private final GameService games;
+    private final ClueFeedbackService feedback;
     private final ObjectMapper mapper;
     private final Map<String, Connection> connections = new ConcurrentHashMap<>();
 
-    public GameSocketHandler(GameService games, ObjectMapper mapper) {
+    public GameSocketHandler(GameService games, ClueFeedbackService feedback, ObjectMapper mapper) {
         this.games = games;
+        this.feedback = feedback;
         this.mapper = mapper;
     }
 
@@ -135,6 +139,10 @@ public class GameSocketHandler extends TextWebSocketHandler {
             }
         } catch (GameException | IllegalArgumentException e) {
             send(c.session, Map.of("type", "error", "message", Objects.toString(e.getMessage(), "Invalid request")));
+        } catch (RuntimeException e) {
+            // e.g. the database is unreachable: tell the screen instead of dropping its connection
+            log.warn("Action '{}' failed in game {}", action, c.code, e);
+            send(c.session, Map.of("type", "error", "message", "Something went wrong – try again"));
         }
     }
 
@@ -159,6 +167,18 @@ public class GameSocketHandler extends TextWebSocketHandler {
             case "judgeFinal" -> game.judgeFinal(msg.path("teamId").asText(null), msg.path("correct").asBoolean());
             case "removeTeam" -> game.removeTeam(msg.path("teamId").asText(null));
             case "finish" -> game.finish();
+            case "clueFeedback" -> {
+                long clueId = msg.path("clueId").asLong(-1);
+                String what = msg.path("feedbackAction").asText("");
+                game.recordFeedback(clueId, what); // validates the clue is in this game
+                try {
+                    feedback.submit(clueId, what, msg.path("reason").asText("other"), msg.path("note").asText(null),
+                            game.code());
+                } catch (RuntimeException e) {
+                    log.warn("Could not save feedback for clue {}: {}", clueId, e.getMessage());
+                    throw new GameException("Couldn't save that feedback – try again");
+                }
+            }
             default -> throw new GameException("Unknown action: " + action);
         }
         return true;

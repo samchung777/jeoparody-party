@@ -35,6 +35,8 @@
     <span id="enrich" style="margin-left:12px;opacity:.85"></span></div>
   <h2>Keywords ready for the board <small style="font-size:14px;opacity:.7">(5+ clues)</small></h2>
   <div id="keywords">Loading…</div>
+  <h2>Flagged clues <small style="font-size:14px;opacity:.7">(from host feedback)</small></h2>
+  <div id="flagged">Loading…</div>
   <h2>Categories</h2>
   <table>
     <thead><tr><th>Category</th><th class="n">Easy</th><th class="n">Medium</th><th class="n">Hard</th></tr></thead>
@@ -99,6 +101,26 @@
     loadKeywords();
     setTimeout(pollEnrichment, s.running ? 4000 : 15000);
   }
+
+  async function loadFlagged() {
+    const items = await (await fetch('/api/admin/feedback')).json();
+    const el = document.getElementById('flagged');
+    if (!items.length) { el.textContent = 'Nothing flagged yet.'; return; }
+    el.innerHTML = items.map(f => `
+      <div class="clue" style="padding-left:0">
+        <span class="tag">${f.action === 'remove' ? 'Removed' : 'Reworded'} · ${esc(f.reason)}${f.gameCode ? ' · game ' + esc(f.gameCode) : ''}</span>
+        ${esc(f.clue || f.question)} → <b>${esc(f.response || f.answer)}</b>
+        ${f.note ? `<div class="orig">Note: ${esc(f.note)}</div>` : ''}
+        ${f.retired ? `<button data-restore="${f.clueId}" style="margin-top:4px">Restore</button>` : ''}
+      </div>`).join('');
+  }
+  document.getElementById('flagged').addEventListener('click', async e => {
+    const b = e.target.closest('[data-restore]');
+    if (!b) return;
+    await fetch(`/api/admin/clues/${b.dataset.restore}/restore`, { method: 'POST' });
+    loadFlagged(); loadKeywords(); loadCategories();
+  });
+  loadFlagged();
 
   document.getElementById('enrichBtn').addEventListener('click', async () => {
     await fetch('/api/admin/enrich', { method: 'POST' });

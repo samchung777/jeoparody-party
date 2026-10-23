@@ -28,6 +28,9 @@
     .final-entry { display: grid; grid-template-columns: 160px 1fr auto; gap: 12px; align-items: center; padding: 10px; border-radius: 10px; background: #141a66; }
     .final-entry img.answer { max-width: 260px; background: #fff; border-radius: 8px; }
     .final-entry.spot { outline: 2px solid var(--gold); }
+    .review { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 10px; border-radius: 10px; background: #141a66; }
+    .review .meta { font-size: 12px; color: var(--muted); }
+    .review.selected { outline: 2px solid var(--gold); }
     .warn { background: #5a3b00; border: 1px solid var(--gold); padding: 8px 12px; border-radius: 8px; }
     input.wager { width: 140px; }
   </style>
@@ -45,7 +48,30 @@
     <h3 style="margin:0">Teams</h3>
     <div id="teams" class="stack"></div>
   </section>
-  <section class="panel stack" id="phase"></section>
+  <div class="stack">
+    <section class="panel stack" id="phase"></section>
+    <section class="panel stack hidden" id="feedback">
+      <h3 style="margin:0">Flag this clue</h3>
+      <p class="muted" style="margin:0">Bad clue or answer? Remove it from future games, or have Gemini rewrite it.</p>
+      <p id="fbClue" class="clue-font" style="margin:0"></p>
+      <div class="row">
+        <select id="fbReason" style="padding:10px;border-radius:8px">
+          <option value="wrong">Wrong or outdated answer</option>
+          <option value="unclear">Confusing wording</option>
+          <option value="giveaway">Clue gives away the answer</option>
+          <option value="obscure">Too obscure / not fun</option>
+          <option value="offensive">Inappropriate</option>
+          <option value="other">Other</option>
+        </select>
+        <input type="text" id="fbNote" maxlength="300" placeholder="Optional note, e.g. &quot;the answer is actually X&quot;" style="flex:1;min-width:220px">
+      </div>
+      <div class="row">
+        <button class="bad" id="fbRemove">Remove from future games</button>
+        <button class="secondary" id="fbReword">Reword with Gemini</button>
+        <span id="fbStatus" class="gold"></span>
+      </div>
+    </section>
+  </div>
 </main>
 <script src="/js/game.js"></script>
 <script>
@@ -88,8 +114,59 @@
     send(b.dataset.action, data);
   });
 
+  // ---- Clue feedback panel (kept outside #phase so typing isn't wiped by state updates)
+  let reviewClueId = null;
+  let panelClueId = null;
+
+  function feedbackTarget() {
+    const s = state;
+    if (s.clue && s.clue.clueId != null) return { id: s.clue.clueId, text: s.clue.text, response: s.clue.response, feedback: s.clue.feedback };
+    if (s.final && s.final.clueId != null && ['FINAL_ANSWER', 'FINAL_REVEAL'].includes(s.phase)) return { id: s.final.clueId, text: s.final.text, response: s.final.response, feedback: s.final.feedback };
+    if (s.phase === 'GAME_OVER' && reviewClueId != null) {
+      const p = (s.played || []).find(x => x.clueId === reviewClueId);
+      if (p) return { id: p.clueId, text: p.clue, response: p.response, feedback: p.feedback };
+    }
+    return null;
+  }
+
+  function renderFeedback() {
+    const t = feedbackTarget();
+    document.getElementById('feedback').classList.toggle('hidden', !t);
+    if (!t) { panelClueId = null; return; }
+    if (t.id !== panelClueId) {
+      panelClueId = t.id;
+      document.getElementById('fbNote').value = '';
+      document.getElementById('fbReason').value = 'wrong';
+    }
+    document.getElementById('fbClue').innerHTML = `${esc(t.text || '')}<br><span class="gold">${esc(t.response || '')}</span>`;
+    const done = t.feedback === 'remove' ? 'Removed from future games ✓' : t.feedback === 'reword' ? 'Sent to Gemini for rewording ✓' : '';
+    document.getElementById('fbStatus').textContent = done;
+    document.getElementById('fbRemove').disabled = !!t.feedback;
+    document.getElementById('fbReword').disabled = !!t.feedback;
+  }
+
+  function sendFeedback(feedbackAction) {
+    if (panelClueId == null) return;
+    if (feedbackAction === 'remove' && !confirm('Remove this clue from all future games?')) return;
+    send('clueFeedback', {
+      clueId: panelClueId, feedbackAction,
+      reason: document.getElementById('fbReason').value,
+      note: document.getElementById('fbNote').value
+    });
+  }
+  document.getElementById('fbRemove').onclick = () => sendFeedback('remove');
+  document.getElementById('fbReword').onclick = () => sendFeedback('reword');
+  document.addEventListener('click', e => {
+    const r = e.target.closest('[data-review]');
+    if (!r) return;
+    reviewClueId = Number(r.dataset.review);
+    render();
+    document.getElementById('feedback').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+
   function render() {
     renderTeams();
+    renderFeedback();
     const views = {
       LOBBY: lobby, VOTING: voting, FINAL_VOTING: voting, BOARD: board, DAILY_DOUBLE_WAGER: dailyDouble,
       CLUE: clue, FINAL_WAGER: finalWager, FINAL_ANSWER: finalAnswer, FINAL_REVEAL: finalReveal, GAME_OVER: gameOver
@@ -237,9 +314,19 @@
   }
 
   function gameOver() {
+    const played = state.played || [];
+    const badge = f => f === 'remove' ? '<b class="gold">Removed</b>' : f === 'reword' ? '<b class="gold">Rewording</b>' : '';
     return `<h2 style="margin:0" class="gold">Game over!</h2>
       <ol>${(state.standings || []).map(t => `<li>${esc(t.name)} – ${money(t.score)}</li>`).join('')}</ol>
-      <p>Results have been saved. <a href="/">Start a new game</a></p>`;
+      <p>Results have been saved. <a href="/">Start a new game</a></p>
+      <h3 style="margin-bottom:0">Review the clues you played</h3>
+      <p class="muted" style="margin-top:4px">Flag any clue that was wrong, confusing or no fun so it doesn't come back.</p>
+      <div class="stack">${played.map(p => `
+        <div class="review ${p.clueId === reviewClueId ? 'selected' : ''}">
+          <div><div class="meta">${esc(p.category)}${p.value ? ' · $' + p.value : ''}</div>
+            <div>${esc(p.clue)}</div><div class="gold">${esc(p.response)}</div></div>
+          <div class="row">${badge(p.feedback)}${p.feedback ? '' : `<button class="secondary small" data-review="${p.clueId}">Flag…</button>`}</div>
+        </div>`).join('')}</div>`;
   }
 </script>
 </body>

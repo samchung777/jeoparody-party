@@ -28,7 +28,7 @@ public class GameRepository implements ClueSource {
                 FROM keyword k
                 JOIN clue_keyword ck ON ck.keyword_id = k.id
                 JOIN clue cl ON cl.id = ck.clue_id
-                WHERE cl.jeopardy_clue IS NOT NULL AND cl.jeopardy_response IS NOT NULL
+                WHERE cl.jeopardy_clue IS NOT NULL AND cl.jeopardy_response IS NOT NULL AND cl.retired_at IS NULL
                 GROUP BY k.id, k.name, k.title
                 HAVING COUNT(*) >= ?
                 """,
@@ -44,6 +44,7 @@ public class GameRepository implements ClueSource {
                 FROM clue cl
                 JOIN clue_keyword ck ON ck.clue_id = cl.id
                 WHERE ck.keyword_id = ? AND cl.jeopardy_clue IS NOT NULL AND cl.jeopardy_response IS NOT NULL
+                  AND cl.retired_at IS NULL
                 """,
                 (rs, i) -> new CandidateClue(rs.getLong("id"), rs.getString("difficulty"),
                         rs.getString("jeopardy_clue"), rs.getString("jeopardy_response")),

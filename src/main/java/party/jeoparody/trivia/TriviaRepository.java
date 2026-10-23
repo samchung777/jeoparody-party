@@ -46,7 +46,7 @@ public class TriviaRepository {
                        COALESCE(SUM(cl.difficulty = 'medium'), 0) AS medium,
                        COALESCE(SUM(cl.difficulty = 'hard'), 0)   AS hard
                 FROM category c
-                LEFT JOIN clue cl ON cl.category_id = c.id
+                LEFT JOIN clue cl ON cl.category_id = c.id AND cl.retired_at IS NULL
                 GROUP BY c.id, c.name
                 ORDER BY c.name
                 """,
@@ -62,7 +62,7 @@ public class TriviaRepository {
                 FROM clue cl
                 LEFT JOIN clue_keyword ck ON ck.clue_id = cl.id
                 LEFT JOIN keyword k ON k.id = ck.keyword_id
-                WHERE cl.category_id = ?
+                WHERE cl.category_id = ? AND cl.retired_at IS NULL
                 GROUP BY cl.id
                 ORDER BY FIELD(cl.difficulty, 'easy', 'medium', 'hard'), cl.id
                 LIMIT ?
@@ -84,6 +84,7 @@ public class TriviaRepository {
                 FROM keyword k
                 JOIN clue_keyword ck ON ck.keyword_id = k.id
                 JOIN clue cl ON cl.id = ck.clue_id
+                WHERE cl.retired_at IS NULL AND cl.jeopardy_clue IS NOT NULL
                 GROUP BY k.id, k.name, k.title
                 HAVING COUNT(*) >= ?
                 ORDER BY total DESC, k.name

@@ -18,21 +18,22 @@ public class EnrichmentRepository {
 
     public List<ClueToEnrich> findPending(int limit, int maxAttempts) {
         return jdbc.query("""
-                SELECT cl.id, c.name AS category, cl.difficulty, cl.question, cl.answer
+                SELECT cl.id, c.name AS category, cl.difficulty, cl.question, cl.answer, cl.feedback_note
                 FROM clue cl
                 JOIN category c ON c.id = cl.category_id
-                WHERE cl.enrich_version < ? AND cl.enrich_attempts < ?
+                WHERE cl.enrich_version < ? AND cl.enrich_attempts < ? AND cl.retired_at IS NULL
                 ORDER BY cl.enriched_at IS NOT NULL, cl.id
                 LIMIT ?
                 """,
                 (rs, i) -> new ClueToEnrich(rs.getLong("id"), rs.getString("category"), rs.getString("difficulty"),
-                        rs.getString("question"), rs.getString("answer")),
+                        rs.getString("question"), rs.getString("answer"), rs.getString("feedback_note")),
                 EnrichmentPrompt.VERSION, maxAttempts, limit);
     }
 
     public long countPending(int maxAttempts) {
         Long n = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM clue WHERE enrich_version < ? AND enrich_attempts < ?", Long.class,
+                "SELECT COUNT(*) FROM clue WHERE enrich_version < ? AND enrich_attempts < ? AND retired_at IS NULL",
+                Long.class,
                 EnrichmentPrompt.VERSION, maxAttempts);
         return n == null ? 0 : n;
     }
@@ -50,7 +51,7 @@ public class EnrichmentRepository {
     public void save(EnrichedClue e) {
         jdbc.update("""
                 UPDATE clue SET jeopardy_clue = ?, jeopardy_response = ?, enriched_at = CURRENT_TIMESTAMP,
-                                enrich_version = ?, enrich_attempts = 0
+                                enrich_version = ?, enrich_attempts = 0, feedback_note = NULL
                 WHERE id = ?
                 """, e.clue(), truncate(e.response(), 600), EnrichmentPrompt.VERSION, e.id());
         jdbc.update("DELETE FROM clue_keyword WHERE clue_id = ?", e.id());
@@ -65,7 +66,9 @@ public class EnrichmentRepository {
     public List<String> topKeywords(int limit) {
         return jdbc.queryForList("""
                 SELECT k.name
-                FROM keyword k JOIN clue_keyword ck ON ck.keyword_id = k.id
+                FROM keyword k
+                JOIN clue_keyword ck ON ck.keyword_id = k.id
+                JOIN clue cl ON cl.id = ck.clue_id AND cl.retired_at IS NULL
                 GROUP BY k.id, k.name
                 ORDER BY COUNT(*) DESC, k.name
                 LIMIT ?
@@ -89,7 +92,7 @@ public class EnrichmentRepository {
                            AS samples
                 FROM keyword k
                 JOIN clue_keyword ck ON ck.keyword_id = k.id
-                JOIN clue cl ON cl.id = ck.clue_id
+                JOIN clue cl ON cl.id = ck.clue_id AND cl.retired_at IS NULL
                 WHERE k.title IS NULL
                 GROUP BY k.id, k.name
                 HAVING COUNT(*) >= ?

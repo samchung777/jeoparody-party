@@ -39,6 +39,13 @@ public final class Game {
     record FinalAnswer(String drawing, String text) {
     }
 
+    /** A clue that has been shown in this game, for the host's post-game review. */
+    record PlayedClue(CandidateClue clue, String category, int value) {
+    }
+
+    /** Host feedback actions: retire the clue, or have Gemini reword it. */
+    public static final Set<String> FEEDBACK_ACTIONS = Set.of("remove", "reword");
+
     private final String code;
     private final String hostKey;
     private final BoardBuilder builder;
@@ -82,6 +89,10 @@ public final class Game {
     private final Map<String, Boolean> finalJudged = new HashMap<>();
     private List<String> revealOrder = List.of();
     private String spotlightTeamId;
+
+    // Host feedback on clues
+    private final List<PlayedClue> played = new ArrayList<>();
+    private final Map<Long, String> feedback = new HashMap<>();
 
     public Game(String code, String hostKey, BoardBuilder builder, Supplier<String> tokens, Clock clock) {
         this.code = code;
@@ -383,6 +394,8 @@ public final class Game {
         touch();
         require(Phase.CLUE);
         currentCell.markUsed();
+        played.add(new PlayedClue(currentCell.clue(),
+                currentBoard.categories().get(currentCell.column()).keyword().displayTitle(), currentCell.value()));
         resetClueState();
         if (currentBoard.allUsed()) {
             advanceRound();
@@ -417,6 +430,7 @@ public final class Game {
         touch();
         require(Phase.FINAL_WAGER);
         finalEligible.forEach(id -> finalWagers.putIfAbsent(id, 0)); // missing wager counts as $0
+        played.add(new PlayedClue(finalClue, "Final Jeopardy: " + finalCategory.displayTitle(), 0));
         phase = Phase.FINAL_ANSWER;
     }
 
@@ -463,6 +477,34 @@ public final class Game {
         team(teamId).addScore(correct ? wager : -wager);
         finalJudged.put(teamId, correct);
         spotlightTeamId = teamId;
+    }
+
+    /**
+     * Records that the host flagged a clue from this game. The caller persists it; this only
+     * validates the clue belongs to this game and remembers the choice so the host UI can show it.
+     */
+    public synchronized void recordFeedback(long clueId, String action) {
+        touch();
+        if (!FEEDBACK_ACTIONS.contains(action)) {
+            throw new GameException("Unknown feedback action");
+        }
+        if (!containsClue(clueId)) {
+            throw new GameException("That clue isn't part of this game");
+        }
+        feedback.put(clueId, action);
+    }
+
+    private boolean containsClue(long clueId) {
+        if (finalClue != null && finalClue.id() == clueId) {
+            return true;
+        }
+        for (Board b : new Board[] {jeopardyBoard, doubleJeopardyBoard}) {
+            if (b != null && b.categories().stream().flatMap(c -> c.cells().stream())
+                    .anyMatch(cell -> cell.clue().id() == clueId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Host ends the game (normally after Final Jeopardy, but allowed any time). */
@@ -528,6 +570,18 @@ public final class Game {
             v.put("standings", standings().stream().map(t -> Map.of("id", t.id(), "name", t.name(),
                     "score", t.score())).toList());
         }
+        if (host && phase == Phase.GAME_OVER) {
+            v.put("played", played.stream().map(pc -> {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("clueId", pc.clue().id());
+                m.put("category", pc.category());
+                m.put("value", pc.value());
+                m.put("clue", pc.clue().clue());
+                m.put("response", pc.clue().response());
+                m.put("feedback", feedback.get(pc.clue().id()));
+                return m;
+            }).toList());
+        }
         if (viewer == Viewer.PLAYER && viewerTeamId != null && teams.containsKey(viewerTeamId)) {
             v.put("me", playerView(viewerTeamId));
         }
@@ -589,6 +643,10 @@ public final class Game {
         if (host || revealed) {
             c.put("response", currentCell.clue().response());
         }
+        if (host) {
+            c.put("clueId", currentCell.clue().id());
+            c.put("feedback", feedback.get(currentCell.clue().id()));
+        }
         return c;
     }
 
@@ -602,6 +660,10 @@ public final class Game {
         boolean responseVisible = host || phase == Phase.GAME_OVER || !finalJudged.isEmpty();
         if (responseVisible) {
             f.put("response", finalClue.response());
+        }
+        if (host) {
+            f.put("clueId", finalClue.id());
+            f.put("feedback", feedback.get(finalClue.id()));
         }
         f.put("revealOrder", revealOrder);
         f.put("spotlightTeamId", spotlightTeamId);
