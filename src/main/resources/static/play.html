@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Jeoparody Party – Play</title>
+  <link rel="stylesheet" href="/css/game.css">
+  <style>
+    body { min-height: 100vh; }
+    header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--blue); }
+    header .me { display: flex; align-items: center; gap: 10px; }
+    header .me img { height: 34px; width: auto; background: #fff; border-radius: 4px; }
+    header .score { font-size: 22px; font-weight: 800; }
+    main { padding: 16px; max-width: 640px; margin: 0 auto; }
+    h2 { margin: 0 0 8px; color: var(--gold); }
+    .buzz {
+      width: 100%; aspect-ratio: 1 / 1; max-height: 60vh; border-radius: 50%; font-size: 13vmin;
+      font-family: Impact, "Arial Black", sans-serif; letter-spacing: 2px; background: #3a3f7a; color: #9aa0d9;
+      box-shadow: 0 1.5vmin 0 #000a; user-select: none; -webkit-user-select: none; touch-action: manipulation;
+    }
+    .buzz.ready { background: var(--red); color: #fff; }
+    .buzz.ready:active { transform: translateY(1vmin); box-shadow: 0 .5vmin 0 #000a; }
+    .buzz.mine { background: var(--gold); color: #000; }
+    .clue-small { font-size: 18px; line-height: 1.35; }
+    .options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .options .chip { width: 100%; }
+    .counter { position: sticky; top: 0; background: var(--navy); padding: 8px 0; z-index: 1; }
+    .center { text-align: center; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="me" id="me"><b class="title-font gold">JEOPARODY PARTY</b></div>
+  <div class="row"><span class="score" id="score"></span><span class="status-dot" id="conn"></span></div>
+</header>
+<main>
+  <!-- Room code entry (when opened without ?game=) -->
+  <section id="codeEntry" class="stack hidden">
+    <h2>Join a game</h2>
+    <input type="text" id="codeInput" placeholder="Room code (4 letters)" maxlength="4" autocapitalize="characters">
+    <button id="codeGo">Next</button>
+  </section>
+
+  <!-- Persistent sections keep their inputs/drawings when new state arrives. -->
+  <section id="join" class="stack hidden">
+    <h2>Draw your team name</h2>
+    <div id="namePad"></div>
+    <input type="text" id="nameText" maxlength="24" placeholder="Team name (typed, used in the scoreboard)">
+    <button id="joinBtn">Join game</button>
+  </section>
+
+  <section id="wager" class="stack hidden">
+    <h2 id="wagerTitle">Make your wager</h2>
+    <p id="wagerHint" class="muted"></p>
+    <input type="number" id="wagerInput" inputmode="numeric">
+    <button id="wagerBtn">Lock in wager</button>
+  </section>
+
+  <section id="finalAnswer" class="stack hidden">
+    <h2>Final Jeopardy</h2>
+    <p id="finalClue" class="clue-small clue-font"></p>
+    <p class="muted">Write your response (in the form of a question!)</p>
+    <div id="answerPad"></div>
+    <input type="text" id="answerText" maxlength="120" placeholder="Optional: type it too">
+    <button id="answerBtn">Submit response</button>
+    <p id="answerStatus" class="muted"></p>
+  </section>
+
+  <section id="main"></section>
+</main>
+<script src="/js/game.js"></script>
+<script src="/js/drawpad.js"></script>
+<script>
+  const { esc, money, teamById } = Jeo;
+  const $ = id => document.getElementById(id);
+  const code = (Jeo.params().get('game') || '').toUpperCase();
+  const storageKey = `jeoparody-team-${code}`;
+  let state = null;
+
+  const load = () => { try { return JSON.parse(localStorage.getItem(storageKey)); } catch { return null; } };
+  const save = v => { try { v ? localStorage.setItem(storageKey, JSON.stringify(v)) : localStorage.removeItem(storageKey); } catch {} };
+
+  if (!code) {
+    $('codeEntry').classList.remove('hidden');
+    $('codeGo').onclick = async () => {
+      const c = $('codeInput').value.trim().toUpperCase();
+      const res = await fetch(`/api/games/${encodeURIComponent(c)}`);
+      if (res.ok) location.href = `/play.html?game=${encodeURIComponent(c)}`;
+      else Jeo.toast('No game with that code');
+    };
+  } else {
+    start();
+  }
+
+  function start() {
+    const namePad = new DrawPad($('namePad'));
+    const answerPad = new DrawPad($('answerPad'));
+
+    const conn = Jeo.connect(() => {
+      const saved = load();
+      return `game=${encodeURIComponent(code)}&role=player` +
+        (saved ? `&teamId=${encodeURIComponent(saved.teamId)}&token=${encodeURIComponent(saved.token)}` : '');
+    }, {
+      onState: s => { state = s; render(); },
+      onMessage: m => {
+        if (m.type === 'joined') save({ teamId: m.teamId, token: m.token });
+        if (m.type === 'rejoinFailed') save(null);
+      },
+      onStatus: up => $('conn').classList.toggle('on', up),
+      onFatal: msg => { $('main').innerHTML = `<p>${esc(msg)}</p><p><a href="/play.html">Enter another code</a></p>`; hideAll(); }
+    });
+
+    $('joinBtn').onclick = () => {
+      if (namePad.isEmpty() && !$('nameText').value.trim()) return Jeo.toast('Draw or type a team name');
+      conn.send('join', { name: $('nameText').value, drawing: namePad.isEmpty() ? null : namePad.toDataURL() });
+    };
+    $('wagerBtn').onclick = () => {
+      const amount = Number($('wagerInput').value);
+      if (!Number.isInteger(amount)) return Jeo.toast('Enter a whole number');
+      conn.send('wager', { amount });
+    };
+    $('answerBtn').onclick = () => {
+      if (answerPad.isEmpty() && !$('answerText').value.trim()) return Jeo.toast('Write a response first');
+      conn.send('finalAnswer', { drawing: answerPad.isEmpty() ? null : answerPad.toDataURL(), text: $('answerText').value });
+    };
+
+    // Dynamic content uses delegated clicks.
+    $('main').addEventListener('pointerdown', e => {
+      if (e.target.closest('#buzz') && state && state.me && state.me.canBuzz) {
+        e.preventDefault();
+        conn.send('buzz');
+        if (navigator.vibrate) navigator.vibrate(40);
+      }
+    });
+    $('main').addEventListener('click', e => {
+      const chip = e.target.closest('[data-kw]');
+      if (!chip || !state || !state.me) return;
+      const id = Number(chip.dataset.kw);
+      if (state.phase === 'VOTING') {
+        const ballot = new Set(state.me.ballot);
+        if (ballot.has(id)) ballot.delete(id);
+        else if (ballot.size >= state.maxVotes) return Jeo.toast(`You can pick up to ${state.maxVotes}`);
+        else ballot.add(id);
+        conn.send('vote', { keywordIds: [...ballot] });
+      } else if (state.phase === 'FINAL_VOTING') {
+        conn.send('voteFinal', { keywordId: id });
+      }
+    });
+  }
+
+  function hideAll() {
+    ['join', 'wager', 'finalAnswer'].forEach(id => $(id).classList.add('hidden'));
+  }
+
+  function show(id) {
+    hideAll();
+    if (id) $(id).classList.remove('hidden');
+  }
+
+  function render() {
+    const s = state;
+    const me = s.me;
+    $('me').innerHTML = me
+      ? (me && teamById(s, me.id) && teamById(s, me.id).drawing
+          ? `<img src="${esc(teamById(s, me.id).drawing)}" alt=""><b>${esc(me.name)}</b>` : `<b>${esc(me.name)}</b>`)
+      : '<b class="title-font gold">JEOPARODY PARTY</b>';
+    $('score').innerHTML = me ? money(me.score) : '';
+
+    if (!me) {
+      const late = ['FINAL_WAGER', 'FINAL_ANSWER', 'FINAL_REVEAL', 'GAME_OVER'].includes(s.phase);
+      show(late ? null : 'join');
+      $('main').innerHTML = late ? '<p>This game is in Final Jeopardy, so new teams can\'t join. Enjoy the show!</p>' : '';
+      return;
+    }
+
+    const html = {
+      LOBBY: () => `<div class="center stack"><h2>You're in!</h2><p>Watch the big screen. The host will start the category vote soon.</p></div>`,
+      VOTING: () => voteView(s.pool, new Set(me.ballot), `Pick up to ${s.maxVotes} categories`, `${me.ballot.length} / ${s.maxVotes} picked`),
+      FINAL_VOTING: () => voteView(s.finalOptions, new Set(me.finalVote == null ? [] : [me.finalVote]),
+        'Vote for the Final Jeopardy category', me.finalVote == null ? 'Tap one' : 'Vote saved – tap another to change'),
+      BOARD: () => `<div class="center stack"><h2>${s.controlTeamId === me.id ? 'You pick the next clue!' : 'Get ready…'}</h2>
+        <p class="muted">${s.controlTeamId === me.id ? 'Tell the host your category and amount.' : 'The buzzer appears when a clue is on screen.'}</p></div>`,
+      DAILY_DOUBLE_WAGER: () => me.dailyDoubleWager ? '' : `<div class="center"><h2>Daily Double!</h2><p>${esc((teamById(s, s.clue.dailyDoubleTeamId) || {}).name || 'Another team')} is wagering.</p></div>`,
+      CLUE: () => buzzView(s, me),
+      FINAL_WAGER: () => me.finalEligible ? '' : '<div class="center"><h2>Final Jeopardy</h2><p>Only teams with a positive score play Final Jeopardy. Cheer the others on!</p></div>',
+      FINAL_ANSWER: () => me.finalEligible ? '' : `<div class="center"><h2>Final Jeopardy</h2><p class="clue-small clue-font">${esc(s.final.text)}</p></div>`,
+      FINAL_REVEAL: () => `<div class="center"><h2>The reveal!</h2><p>Watch the big screen.</p></div>`,
+      GAME_OVER: () => `<div class="center stack"><h2>Game over!</h2><p>${(s.standings || []).map((t, i) => `${i + 1}. ${esc(t.name)} – ${money(t.score)}`).join('<br>')}</p></div>`
+    }[s.phase] || (() => '');
+
+    // Persistent sections
+    if (s.phase === 'DAILY_DOUBLE_WAGER' && me.dailyDoubleWager) {
+      showWager('Daily Double!', `Wager between $${me.wagerMin} and $${me.wagerMax} on "${s.clue.category}".`, me);
+    } else if (s.phase === 'FINAL_WAGER' && me.finalEligible) {
+      showWager(`Final Jeopardy: ${s.final.category}`,
+        me.finalWager == null ? `Wager between $0 and $${me.wagerMax}.` : `Wager locked in: $${me.finalWager}. You can change it until the clue is revealed.`, me);
+    } else if (s.phase === 'FINAL_ANSWER' && me.finalEligible) {
+      show('finalAnswer');
+      $('finalClue').textContent = s.final.text || '';
+      $('answerStatus').textContent = me.finalAnswered ? 'Response submitted ✓ (you can resubmit until the host locks answers)' : '';
+    } else {
+      show(null);
+    }
+    $('main').innerHTML = html();
+  }
+
+  function showWager(title, hint, me) {
+    const wasHidden = $('wager').classList.contains('hidden');
+    show('wager');
+    $('wagerTitle').textContent = title;
+    $('wagerHint').textContent = hint;
+    $('wagerInput').min = me.wagerMin;
+    $('wagerInput').max = me.wagerMax;
+    if (wasHidden) $('wagerInput').value = '';
+  }
+
+  function voteView(options, selected, title, counter) {
+    return `<h2>${esc(title)}</h2><div class="counter muted">${esc(counter)}</div>
+      <div class="options">${options.map(o => `
+        <button class="chip ${selected.has(o.id) ? 'on' : ''}" data-kw="${o.id}">
+          <span>${esc(o.title)}</span><small>${esc(o.keyword)}</small></button>`).join('')}</div>`;
+  }
+
+  function buzzView(s, me) {
+    const c = s.clue;
+    if (c.dailyDouble) {
+      return `<div class="center stack"><h2>Daily Double</h2><p class="clue-small clue-font">${esc(c.text)}</p>
+        <p>${me.answering ? 'Say your response to the host!' : 'Only the wagering team answers.'}</p></div>`;
+    }
+    let cls = '', label = 'WAIT';
+    if (me.answering) { cls = 'mine'; label = 'ANSWER!'; }
+    else if (me.lockedOut) { label = 'LOCKED'; }
+    else if (c.revealed) { label = '—'; }
+    else if (me.canBuzz && c.buzzersOpen) { cls = 'ready'; label = 'BUZZ'; }
+    else if (c.answeringTeamId) { label = 'WAIT'; }
+    return `<p class="clue-small clue-font center">${esc(c.text)}</p>
+      <button id="buzz" class="buzz ${cls}">${label}</button>
+      ${c.revealed ? `<p class="center gold clue-font">${esc(c.response || '')}</p>` : ''}`;
+  }
+</script>
+</body>
+</html>

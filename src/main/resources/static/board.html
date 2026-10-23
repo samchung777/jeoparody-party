@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jeoparody Party – Board</title>
+  <link rel="stylesheet" href="/css/game.css">
+  <style>
+    body { overflow: hidden; }
+    #app { height: 100vh; display: flex; flex-direction: column; }
+    #stage { flex: 1; min-height: 0; padding: 1.2vh 1.2vw; position: relative; }
+    .center { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 2vh; }
+    .logo { font-size: 7vw; color: var(--gold); text-shadow: 0.3vw 0.3vw 0 #000; margin: 0; }
+    .big { font-size: 3.2vw; }
+    .huge { font-size: 6vw; }
+    .join-box { background: var(--blue); border-radius: 1.5vw; padding: 2vh 3vw; font-size: 2.4vw; box-shadow: 0 0 0 .4vw var(--gold); }
+    .join-box .code { font-size: 6vw; color: var(--gold); letter-spacing: 1vw; }
+    .lobby-teams { display: flex; gap: 2vw; flex-wrap: wrap; justify-content: center; max-width: 90vw; }
+    .lobby-teams .t { width: 16vw; background: var(--panel); border-radius: 1vw; padding: .8vw; }
+
+    /* Board grid */
+    .grid { height: 100%; display: grid; grid-template-columns: repeat(6, 1fr); grid-template-rows: 1.3fr repeat(5, 1fr); gap: .5vw; background: #000; padding: .5vw; border-radius: .6vw; }
+    .cat, .cell { background: var(--blue); display: flex; align-items: center; justify-content: center; text-align: center; border-radius: .3vw; }
+    .cat { font-size: 1.6vw; padding: .5vw; text-transform: uppercase; line-height: 1.1; text-shadow: .15vw .15vw 0 #000; }
+    .cell { font-size: 3.6vw; color: var(--gold); text-shadow: .25vw .25vw 0 #000; }
+    .cell.used { color: transparent; text-shadow: none; }
+
+    /* Clue overlay */
+    .overlay { position: absolute; inset: 1.2vh 1.2vw; background: var(--blue); border-radius: .8vw; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4vh 6vw; text-align: center; }
+    .overlay .cat-line { position: absolute; top: 2.5vh; left: 0; right: 0; font-size: 1.8vw; color: var(--muted); }
+    .overlay .clue { font-size: 4vw; line-height: 1.25; text-shadow: .25vw .25vw 0 #000; }
+    .overlay .status { position: absolute; bottom: 3vh; left: 0; right: 0; font-size: 2.4vw; }
+    .overlay .response { margin-top: 4vh; font-size: 3.4vw; color: var(--gold); }
+    .dd { font-size: 9vw; color: var(--gold); text-shadow: .4vw .4vw 0 #000; animation: pop .6s ease-out; }
+    @keyframes pop { from { transform: scale(.2) rotate(-10deg); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .answering { display: inline-flex; align-items: center; gap: 1vw; background: var(--gold); color: #000; padding: .6vh 1.5vw; border-radius: 1vw; animation: pulse 1s infinite; }
+    .answering img { max-height: 6vh; width: auto; }
+    @keyframes pulse { 50% { box-shadow: 0 0 0 1vw #ffcc0055; } }
+    .open { color: var(--green); }
+    .result-correct { color: var(--green); } .result-incorrect { color: var(--red); }
+
+    /* Voting */
+    .center.top { justify-content: flex-start; gap: 1.5vh; }
+    .vote-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: .8vw; width: 96vw; }
+    .vote-tile { background: var(--blue); border-radius: .6vw; padding: .7vw .8vw 1vw; text-align: left; position: relative; overflow: hidden; min-height: 11vh; }
+    .vote-tile .t { font-size: 1.25vw; font-weight: 800; padding-right: 2vw; line-height: 1.15; }
+    .vote-tile .k { font-size: .9vw; color: var(--muted); margin-top: .3vh; }
+    .vote-tile .bar { position: absolute; left: 0; bottom: 0; height: .5vw; background: var(--gold); }
+    .vote-tile .n { position: absolute; top: .6vw; right: .8vw; color: var(--gold); font-size: 1.4vw; font-weight: 800; }
+
+    /* Final */
+    .final-answer { display: flex; gap: 3vw; align-items: center; justify-content: center; }
+    .final-answer img { max-width: 45vw; max-height: 40vh; background: #fff; border-radius: 1vw; }
+
+    /* Scoreboard */
+    #scores { display: flex; gap: .8vw; padding: 0 1.2vw 1.2vh; justify-content: center; }
+    .score { flex: 0 1 14vw; background: var(--blue-deep); border: .25vw solid transparent; border-radius: .8vw; padding: .5vw; text-align: center; }
+    .score.control { border-color: var(--gold); }
+    .score.answering-now { background: var(--gold); color: #000; }
+    .score .label { height: 5.5vh; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .score .label img { max-height: 5.5vh; width: auto; max-width: 100%; }
+    .score .nm { font-size: .9vw; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .score.answering-now .nm { color: #000; }
+    .score .pts { font-size: 2vw; font-weight: 800; }
+    #conn { position: fixed; top: 8px; right: 8px; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="stage"></div>
+  <div id="scores"></div>
+</div>
+<span id="conn" class="status-dot" title="Connection"></span>
+<script src="/js/game.js"></script>
+<script>
+  const { esc, money, teamById, teamLabel, playerUrl } = Jeo;
+  const code = (Jeo.params().get('game') || '').toUpperCase();
+  const stage = document.getElementById('stage');
+  const scores = document.getElementById('scores');
+
+  if (!code) {
+    stage.innerHTML = '<div class="center"><h1 class="logo title-font">JEOPARODY PARTY</h1><p class="big">Open this page from the host screen\'s "Open board" link.</p></div>';
+  } else {
+    Jeo.connect(() => `game=${encodeURIComponent(code)}&role=board`, {
+      onState: render,
+      onStatus: up => document.getElementById('conn').classList.toggle('on', up),
+      onFatal: msg => { stage.innerHTML = `<div class="center"><p class="big">${esc(msg)}</p></div>`; }
+    });
+  }
+
+  function render(s) {
+    renderScores(s);
+    const views = {
+      LOBBY: lobby, VOTING: voting, FINAL_VOTING: voting, BOARD: board,
+      DAILY_DOUBLE_WAGER: dailyDouble, CLUE: clue, FINAL_WAGER: finalCategory,
+      FINAL_ANSWER: finalClue, FINAL_REVEAL: finalReveal, GAME_OVER: gameOver
+    };
+    stage.innerHTML = (views[s.phase] || lobby)(s);
+  }
+
+  function renderScores(s) {
+    const hide = ['LOBBY', 'VOTING', 'FINAL_VOTING', 'GAME_OVER'].includes(s.phase);
+    scores.classList.toggle('hidden', hide);
+    const answering = s.clue && s.clue.answeringTeamId;
+    scores.innerHTML = (s.teams || []).map(t => `
+      <div class="score ${t.id === s.controlTeamId ? 'control' : ''} ${t.id === answering ? 'answering-now' : ''}">
+        <div class="label">${teamLabel(t)}</div>
+        ${t.drawing ? `<div class="nm">${esc(t.name)}</div>` : ''}
+        <div class="pts">${money(t.score)}</div>
+      </div>`).join('');
+  }
+
+  function lobby(s) {
+    return `<div class="center">
+      <h1 class="logo title-font">JEOPARODY PARTY</h1>
+      <div class="join-box">On your phone, go to<br><b>${esc(playerUrl(s.code))}</b><div class="code title-font">${esc(s.code)}</div></div>
+      <div class="lobby-teams">${s.teams.map(t => `<div class="t">${teamLabel(t, { big: true })}</div>`).join('')}</div>
+      <p class="big muted">${s.teams.length ? `${s.teams.length} team${s.teams.length > 1 ? 's' : ''} ready` : 'Waiting for teams…'}</p>
+    </div>`;
+  }
+
+  function voting(s) {
+    const isFinal = s.phase === 'FINAL_VOTING';
+    const options = isFinal ? s.finalOptions : s.pool;
+    const max = Math.max(1, ...options.map(o => o.votes || 0));
+    const done = s.teams.filter(t => isFinal ? t.finalVoted : t.voted).length;
+    return `<div class="center top">
+      <div class="big title-font gold">${isFinal ? 'VOTE FOR THE FINAL JEOPARDY CATEGORY' : `VOTE FOR UP TO ${s.maxVotes} CATEGORIES`}</div>
+      <div class="vote-grid">${options.map(o => `
+        <div class="vote-tile">
+          <div class="t">${esc(o.title)}</div><div class="k">${esc(o.keyword)}</div>
+          ${o.votes ? `<div class="n">${o.votes}</div>` : ''}
+          <div class="bar" style="width:${100 * (o.votes || 0) / max}%"></div>
+        </div>`).join('')}</div>
+      <div class="big muted">${done} of ${s.teams.length} teams have voted</div>
+    </div>`;
+  }
+
+  function board(s) {
+    const cats = s.board.categories;
+    let html = '<div class="grid">';
+    html += cats.map(c => `<div class="cat title-font">${esc(c.title)}</div>`).join('');
+    for (let r = 0; r < 5; r++) {
+      html += cats.map(c => {
+        const cell = c.cells[r];
+        return `<div class="cell title-font ${cell.used ? 'used' : ''}">$${cell.value}</div>`;
+      }).join('');
+    }
+    return html + '</div>';
+  }
+
+  function dailyDouble(s) {
+    const team = teamById(s, s.clue.dailyDoubleTeamId);
+    return `<div class="overlay">
+      <div class="cat-line title-font">${esc(s.clue.category)}</div>
+      <div class="dd title-font">DAILY DOUBLE!</div>
+      <div class="big">${team ? esc(team.name) : 'The team in control'} is making a wager…</div>
+    </div>`;
+  }
+
+  function clue(s) {
+    const c = s.clue;
+    const answering = teamById(s, c.answeringTeamId);
+    let status = '';
+    if (c.revealed) {
+      status = c.lastResult ? `<span class="result-${c.lastResult}">${c.lastResult === 'correct' ? 'Correct!' : 'Incorrect'}</span>` : '';
+    } else if (answering) {
+      status = `<span class="answering">${answering.drawing ? `<img src="${esc(answering.drawing)}" alt="">` : ''}<b>${esc(answering.name)}</b>&nbsp;is answering</span>`;
+    } else if (c.buzzersOpen) {
+      status = '<span class="open title-font">BUZZ IN!</span>';
+    }
+    const label = c.dailyDouble ? `DAILY DOUBLE · WAGER ${money(c.wager)}` : `$${c.value}`;
+    return `<div class="overlay">
+      <div class="cat-line title-font">${esc(c.category)} · ${label}</div>
+      <div class="clue clue-font">${esc(c.text)}</div>
+      ${c.revealed ? `<div class="response clue-font">${esc(c.response)}</div>` : ''}
+      <div class="status">${status}</div>
+    </div>`;
+  }
+
+  function finalCategory(s) {
+    const waiting = s.teams.filter(t => t.finalEligible && !t.wagered).length;
+    return `<div class="overlay">
+      <div class="title-font gold huge">FINAL JEOPARDY!</div>
+      <div class="clue title-font" style="margin-top:3vh">${esc(s.final.category)}</div>
+      <div class="status">${waiting ? `Waiting for ${waiting} wager${waiting > 1 ? 's' : ''}…` : 'All wagers are in!'}</div>
+    </div>`;
+  }
+
+  function finalClue(s) {
+    const pending = s.teams.filter(t => t.finalEligible && !t.answered).length;
+    return `<div class="overlay">
+      <div class="cat-line title-font">FINAL JEOPARDY · ${esc(s.final.category)}</div>
+      <div class="clue clue-font">${esc(s.final.text)}</div>
+      <div class="status">${pending ? `${pending} team${pending > 1 ? 's' : ''} still writing…` : 'All responses are in!'}</div>
+    </div>`;
+  }
+
+  function finalReveal(s) {
+    const f = s.final;
+    const entry = f.entries.find(e => e.teamId === f.spotlightTeamId);
+    const team = teamById(s, f.spotlightTeamId);
+    if (!entry || !team) return finalClue(s);
+    const judged = f.judged[team.id];
+    const answer = entry.drawing ? `<img src="${esc(entry.drawing)}" alt="response">`
+      : `<div class="clue clue-font">${esc(entry.text || '(no response)')}</div>`;
+    return `<div class="overlay">
+      <div class="cat-line title-font">FINAL JEOPARDY · ${esc(f.category)}</div>
+      <div style="max-width:30vw;margin-bottom:2vh">${teamLabel(team, { big: true })}</div>
+      <div class="final-answer">${answer}</div>
+      ${entry.drawing && entry.text ? `<div class="big clue-font" style="margin-top:1vh">${esc(entry.text)}</div>` : ''}
+      ${judged !== undefined ? `<div class="big" style="margin-top:2vh"><span class="result-${judged ? 'correct' : 'incorrect'}">${judged ? 'Correct!' : 'Incorrect'}</span> · wagered ${money(entry.wager)}</div>` : ''}
+      ${f.response ? `<div class="status gold clue-font">${esc(f.response)}</div>` : ''}
+    </div>`;
+  }
+
+  function gameOver(s) {
+    const st = s.standings || [];
+    const winner = st.length ? teamById(s, st[0].id) : null;
+    return `<div class="center">
+      <div class="title-font gold huge">${winner ? 'CONGRATULATIONS!' : 'THANKS FOR PLAYING!'}</div>
+      ${winner ? `<div style="width:30vw">${teamLabel(winner, { big: true })}</div>` : ''}
+      <div class="big">${st.map((t, i) => `${i + 1}. ${esc(t.name)} — ${money(t.score)}`).join('<br>')}</div>
+    </div>`;
+  }
+</script>
+</body>
+</html>

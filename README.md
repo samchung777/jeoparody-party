@@ -46,6 +46,26 @@ Jeopardy-style clue ("This planet is known as the Red Planet"), the response in 
 prompt so Gemini reuses them and keywords build up enough clues to fill a board column. Set
 `TRIVIA_ENRICHMENT_ENABLED=false` to turn this off (CI does).
 
+## Playing a game
+
+| Screen | URL | Who |
+|---|---|---|
+| Landing | `/` | Create a game or join one |
+| Host console | `/host.html?game=CODE&key=…` | The host (secret link from "Create a game") |
+| Board | `/board.html?game=CODE` | The TV / projector |
+| Player | `/play.html?game=CODE` | One phone per team |
+
+1. **Lobby** – teams join on their phones and draw their team name.
+2. **Category vote** – each team picks up to 12 keywords from a random pool of 26; the top 12 become the
+   Jeopardy and Double Jeopardy categories (alternating by rank), shown with their punny titles.
+3. **Final category vote** – teams pick one of the remaining keywords for Final Jeopardy.
+4. **Jeopardy / Double Jeopardy** – the host picks clues, opens the buzzers after reading, and rules
+   right/wrong. One Daily Double in round one, two in round two; the team in control wagers on its phone.
+5. **Final Jeopardy** – teams with a positive score wager, then write their response on the drawing pad.
+   The host reveals them lowest score first. Results are saved to MySQL.
+
+Live games are held in memory (single instance) and pushed to every screen over a WebSocket (`/ws`).
+
 ## Trivia data
 
 Questions come from the [Open Trivia Database](https://opentdb.com), licensed under

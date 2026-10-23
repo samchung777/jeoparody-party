@@ -1,0 +1,75 @@
+/* Shared look for the board, host and player screens. */
+:root {
+  --blue: #060ce9;
+  --blue-deep: #0a0f8f;
+  --navy: #050833;
+  --panel: #10154f;
+  --line: #2a2f7a;
+  --gold: #ffcc00;
+  --text: #ffffff;
+  --muted: #b9bde8;
+  --green: #22c55e;
+  --red: #ef4444;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--navy);
+  color: var(--text);
+}
+a { color: var(--gold); }
+.title-font { font-family: Impact, "Arial Black", "Helvetica Neue", sans-serif; letter-spacing: 1px; }
+.clue-font { font-family: Georgia, "Times New Roman", serif; text-transform: uppercase; }
+.gold { color: var(--gold); }
+.muted { color: var(--muted); }
+.hidden { display: none !important; }
+
+button {
+  font: inherit; font-weight: 700; border: 0; border-radius: 8px; padding: 10px 16px;
+  cursor: pointer; background: var(--gold); color: #000;
+}
+button.secondary { background: #2a2f7a; color: #fff; }
+button.good { background: var(--green); color: #000; }
+button.bad { background: var(--red); color: #fff; }
+button.small { padding: 4px 10px; font-size: 13px; }
+button:disabled { opacity: .4; cursor: default; }
+input[type=text], input[type=number] {
+  font: inherit; padding: 10px 12px; border-radius: 8px; border: 2px solid var(--line);
+  background: #fff; color: #000; width: 100%;
+}
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.stack > * + * { margin-top: 12px; }
+
+.chip {
+  display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 10px 12px; border-radius: 10px; border: 2px solid var(--line); background: #141a66;
+  color: #fff; text-align: left; font-weight: 600; cursor: pointer;
+}
+.chip small { color: var(--muted); font-weight: 400; }
+.chip.on { border-color: var(--gold); background: #2b2a00; }
+.chip .votes { color: var(--gold); font-size: 13px; }
+
+.money { font-variant-numeric: tabular-nums; }
+.money.neg { color: var(--red); }
+
+.team-name-img { background: #fff; border-radius: 6px; display: block; width: 100%; height: auto; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 1000;
+  background: #000c; color: #fff; padding: 12px 18px; border-radius: 10px; max-width: 90vw;
+  box-shadow: 0 4px 20px #0008; font-weight: 600;
+}
+.status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: var(--red); }
+.status-dot.on { background: var(--green); }
+
+/* Drawing pad */
+.drawpad { width: 100%; max-width: 640px; }
+.drawpad canvas {
+  width: 100%; height: auto; aspect-ratio: 2 / 1; background: #fff; border-radius: 10px;
+  touch-action: none; display: block; cursor: crosshair;
+}
+.drawpad .tools { display: flex; gap: 8px; margin-top: 8px; }

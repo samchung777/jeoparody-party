@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jeoparody Party – Host</title>
+  <link rel="stylesheet" href="/css/game.css">
+  <style>
+    header { display: flex; gap: 16px; align-items: center; padding: 12px 16px; background: var(--blue); flex-wrap: wrap; }
+    header h1 { margin: 0; font-size: 22px; color: var(--gold); }
+    header .code { font-size: 22px; letter-spacing: 3px; }
+    main { display: grid; grid-template-columns: 320px 1fr; gap: 16px; padding: 16px; align-items: start; }
+    @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+    .team { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 10px; border-radius: 10px; background: #141a66; border: 2px solid transparent; }
+    .team.control { border-color: var(--gold); }
+    .team .label { max-width: 180px; }
+    .team .score { font-size: 20px; font-weight: 800; }
+    .team .tools { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+    .hgrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+    .hgrid .cat { background: var(--blue); padding: 8px 4px; font-size: 12px; font-weight: 800; text-align: center; border-radius: 6px; text-transform: uppercase; min-height: 54px; display: flex; align-items: center; justify-content: center; }
+    .hgrid button.cell { background: var(--blue); color: var(--gold); font-size: 20px; padding: 14px 0; border-radius: 6px; position: relative; }
+    .hgrid button.cell.used { background: #1b1f45; color: #444a8a; }
+    .hgrid button.cell .dd { position: absolute; top: 2px; right: 6px; font-size: 12px; color: #fff; }
+    .clue-text { font-size: 22px; line-height: 1.35; }
+    .response { font-size: 22px; color: var(--gold); }
+    .big-actions button { font-size: 18px; padding: 14px 22px; }
+    .vote-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+    .final-entry { display: grid; grid-template-columns: 160px 1fr auto; gap: 12px; align-items: center; padding: 10px; border-radius: 10px; background: #141a66; }
+    .final-entry img.answer { max-width: 260px; background: #fff; border-radius: 8px; }
+    .final-entry.spot { outline: 2px solid var(--gold); }
+    .warn { background: #5a3b00; border: 1px solid var(--gold); padding: 8px 12px; border-radius: 8px; }
+    input.wager { width: 140px; }
+  </style>
+</head>
+<body>
+<header>
+  <h1 class="title-font">JEOPARODY PARTY · HOST</h1>
+  <span>Room <b class="code title-font gold" id="code"></b></span>
+  <a id="boardLink" target="_blank" rel="noopener"><button class="secondary small">Open board ↗</button></a>
+  <span class="muted" id="joinUrl"></span>
+  <span class="status-dot" id="conn" title="Connection"></span>
+</header>
+<main>
+  <section class="panel stack">
+    <h3 style="margin:0">Teams</h3>
+    <div id="teams" class="stack"></div>
+  </section>
+  <section class="panel stack" id="phase"></section>
+</main>
+<script src="/js/game.js"></script>
+<script>
+  const { esc, money, teamById, teamLabel, playerUrl } = Jeo;
+  const p = Jeo.params();
+  const code = (p.get('game') || '').toUpperCase();
+  const key = p.get('key') || '';
+  let state = null;
+
+  document.getElementById('code').textContent = code;
+  document.getElementById('boardLink').href = `/board.html?game=${encodeURIComponent(code)}`;
+  const joinUrl = playerUrl(code);
+  document.getElementById('joinUrl').innerHTML = `Players join at <a href="${esc(joinUrl)}" target="_blank" rel="noopener">${esc(joinUrl)}</a>`;
+  if (['localhost', '127.0.0.1'].includes(location.hostname)) {
+    document.getElementById('joinUrl').insertAdjacentHTML('afterend',
+      '<span class="warn">Phones can\'t reach "localhost". Open this page using your computer\'s network address (e.g. http://192.168.x.x:8080) so the join link works.</span>');
+  }
+
+  const conn = Jeo.connect(() => `game=${encodeURIComponent(code)}&role=host&key=${encodeURIComponent(key)}`, {
+    onState: s => { state = s; render(); },
+    onStatus: up => document.getElementById('conn').classList.toggle('on', up),
+    onFatal: msg => { document.getElementById('phase').innerHTML = `<p>${esc(msg)}</p><p><a href="/">Start a new game</a></p>`; }
+  });
+  const send = (action, data) => conn.send(action, data);
+
+  // Buttons declare their action with data-action / data-* attributes; one delegated handler sends them.
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-action]');
+    if (!b || b.disabled) return;
+    const data = {};
+    for (const [k, v] of Object.entries(b.dataset)) {
+      if (k === 'action' || k === 'confirm') continue;
+      data[k] = v === 'true' ? true : v === 'false' ? false : /^-?\d+$/.test(v) && k !== 'teamId' ? Number(v) : v;
+    }
+    if (b.dataset.action === 'wager') {
+      const input = document.getElementById('hostWager');
+      data.amount = Number(input && input.value);
+    }
+    if (b.dataset.confirm && !confirm(b.dataset.confirm)) return;
+    send(b.dataset.action, data);
+  });
+
+  function render() {
+    renderTeams();
+    const views = {
+      LOBBY: lobby, VOTING: voting, FINAL_VOTING: voting, BOARD: board, DAILY_DOUBLE_WAGER: dailyDouble,
+      CLUE: clue, FINAL_WAGER: finalWager, FINAL_ANSWER: finalAnswer, FINAL_REVEAL: finalReveal, GAME_OVER: gameOver
+    };
+    document.getElementById('phase').innerHTML = (views[state.phase] || lobby)();
+  }
+
+  function renderTeams() {
+    const s = state;
+    const step = s.clue ? s.clue.value : (s.round === 'DOUBLE_JEOPARDY' ? 400 : 200);
+    document.getElementById('teams').innerHTML = s.teams.length ? s.teams.map(t => `
+      <div class="team ${t.id === s.controlTeamId ? 'control' : ''}">
+        <div class="label">${teamLabel(t)}<div class="muted" style="font-size:12px">${esc(t.name)}</div></div>
+        <div class="score">${money(t.score)}</div>
+        <div class="tools">
+          <button class="secondary small" data-action="adjustScore" data-team-id="${t.id}" data-delta="${-step}">−${step}</button>
+          <button class="secondary small" data-action="adjustScore" data-team-id="${t.id}" data-delta="${step}">+${step}</button>
+          ${s.phase !== 'LOBBY' ? `<button class="secondary small" data-action="setControl" data-team-id="${t.id}" ${t.id === s.controlTeamId ? 'disabled' : ''}>Give control</button>` : ''}
+          <button class="bad small" data-action="removeTeam" data-team-id="${t.id}" data-confirm="Remove ${esc(t.name)} from the game?">✕</button>
+        </div>
+      </div>`).join('') : '<p class="muted">No teams yet. Players open the join link on their phones.</p>';
+  }
+
+  const name = id => { const t = teamById(state, id); return t ? esc(t.name) : '—'; };
+
+  function lobby() {
+    return `<h2 style="margin:0">Waiting for teams</h2>
+      <p>Open the <b>board</b> on the TV, then have each team join on a phone and draw their team name.</p>
+      <p>When everyone's in, start the category vote. Players see a random pool of 26 keywords and vote for up to 12.</p>
+      <div class="big-actions"><button data-action="startVoting" ${state.teams.length ? '' : 'disabled'}>Start category vote</button></div>`;
+  }
+
+  function voting() {
+    const isFinal = state.phase === 'FINAL_VOTING';
+    const options = (isFinal ? state.finalOptions : state.pool).slice().sort((a, b) => b.votes - a.votes);
+    const voted = state.teams.filter(t => isFinal ? t.finalVoted : t.voted);
+    return `<h2 style="margin:0">${isFinal ? 'Final Jeopardy category vote' : 'Board category vote'}</h2>
+      <p>${voted.length} of ${state.teams.length} teams voted${voted.length ? ': ' + voted.map(t => esc(t.name)).join(', ') : ''}.
+         ${isFinal ? 'The top keyword becomes the Final Jeopardy category.' : 'The top 12 become categories, alternating between Jeopardy and Double Jeopardy.'}</p>
+      <div class="vote-list">${options.map(o => `<div class="chip"><span>${esc(o.title)}</span><small>${esc(o.keyword)}</small><span class="votes">${o.votes} vote${o.votes === 1 ? '' : 's'}</span></div>`).join('')}</div>
+      <div class="big-actions"><button data-action="${isFinal ? 'closeFinalVoting' : 'closeVoting'}">${isFinal ? 'Lock Final category & start the game' : 'Close voting & build the boards'}</button></div>`;
+  }
+
+  function grid(clickable) {
+    const cats = state.board.categories;
+    let html = '<div class="hgrid">' + cats.map(c => `<div class="cat" title="${esc(c.keyword)}">${esc(c.title)}</div>`).join('');
+    for (let r = 0; r < 5; r++) {
+      html += cats.map((c, col) => {
+        const cell = c.cells[r];
+        const disabled = cell.used || !clickable ? 'disabled' : '';
+        return `<button class="cell title-font ${cell.used ? 'used' : ''}" data-action="selectCell" data-column="${col}" data-row="${r}" ${disabled}>
+          $${cell.value}${cell.dailyDouble && !cell.used ? '<span class="dd">DD</span>' : ''}</button>`;
+      }).join('');
+    }
+    return html + '</div>';
+  }
+
+  function board() {
+    const round = state.round === 'DOUBLE_JEOPARDY' ? 'Double Jeopardy' : 'Jeopardy';
+    return `<div class="row" style="justify-content:space-between"><h2 style="margin:0">${round} round</h2>
+        <span>In control: <b class="gold">${name(state.controlTeamId)}</b></span></div>
+      <p class="muted">Click the clue the team in control picks. "DD" marks a Daily Double (only you can see it).</p>
+      ${grid(true)}
+      <div class="row"><button class="secondary" data-action="endRound" data-confirm="End this round now? Unplayed clues are skipped.">End round early</button></div>`;
+  }
+
+  function dailyDouble() {
+    const c = state.clue;
+    const team = teamById(state, c.dailyDoubleTeamId);
+    const max = team ? Math.max(team.score, state.round === 'DOUBLE_JEOPARDY' ? 2000 : 1000) : 0;
+    return `<h2 style="margin:0" class="gold">Daily Double! · ${esc(c.category)} · $${c.value}</h2>
+      <p><b>${name(c.dailyDoubleTeamId)}</b> is entering a wager on their device ($5 – ${money(max)}).</p>
+      <p class="muted">Wrong team? Use "Give control" on the left. You can also enter the wager for them:</p>
+      <div class="row"><input id="hostWager" class="wager" type="number" min="5" max="${max}" placeholder="Wager">
+        <button data-action="wager" data-team-id="${c.dailyDoubleTeamId}">Set wager</button></div>
+      <details><summary class="muted">Peek at the clue</summary><p class="clue-text clue-font">${esc(c.text || '')}</p><p class="response">${esc(c.response)}</p></details>`;
+  }
+
+  function clue() {
+    const c = state.clue;
+    const answering = c.answeringTeamId;
+    let actions;
+    if (c.revealed) {
+      actions = `<button data-action="returnToBoard">Back to the board</button>`;
+    } else if (answering) {
+      actions = `<span><b class="gold">${name(answering)}</b> is answering:</span>
+        <button class="good" data-action="judge" data-correct="true">Correct (+${c.dailyDouble ? c.wager : c.value})</button>
+        <button class="bad" data-action="judge" data-correct="false">Incorrect (−${c.dailyDouble ? c.wager : c.value})</button>`;
+    } else if (c.buzzersOpen) {
+      actions = `<span class="gold">Buzzers are open…</span><button class="secondary" data-action="reveal">Time's up – reveal</button>`;
+    } else {
+      actions = `<button data-action="openBuzzers">Open buzzers</button><button class="secondary" data-action="reveal">Reveal response</button>`;
+    }
+    const locked = c.lockedOut.length ? `<p class="muted">Locked out: ${c.lockedOut.map(name).join(', ')}</p>` : '';
+    return `<h2 style="margin:0">${esc(c.category)} · ${c.dailyDouble ? `Daily Double · wager ${money(c.wager)}` : '$' + c.value}</h2>
+      <p class="clue-text clue-font">${esc(c.text)}</p>
+      <p class="response">${esc(c.response)}</p>
+      ${c.lastResult ? `<p>Last ruling: <b>${c.lastResult}</b></p>` : ''}
+      ${locked}
+      <p class="muted">${c.dailyDouble ? 'Only the wagering team answers.' : 'Read the clue aloud, then open the buzzers. Buzzing early does nothing.'}</p>
+      <div class="row big-actions">${actions}</div>`;
+  }
+
+  function finalWager() {
+    const f = state.final;
+    const eligible = state.teams.filter(t => t.finalEligible);
+    return `<h2 style="margin:0" class="gold">Final Jeopardy · ${esc(f.category)}</h2>
+      <p>Teams with a positive score wager on their devices. Missing wagers count as $0.</p>
+      <ul>${eligible.map(t => `<li>${esc(t.name)} – ${money(t.score)} – ${t.wagered ? '✅ wagered' : '⏳ waiting'}</li>`).join('')}</ul>
+      <p class="muted">Response (only you see this): <span class="response">${esc(f.response)}</span></p>
+      <div class="big-actions"><button data-action="revealFinalClue">Reveal the Final clue</button></div>`;
+  }
+
+  function finalAnswer() {
+    const f = state.final;
+    const eligible = state.teams.filter(t => t.finalEligible);
+    return `<h2 style="margin:0" class="gold">Final Jeopardy · ${esc(f.category)}</h2>
+      <p class="clue-text clue-font">${esc(f.text)}</p>
+      <p class="response">${esc(f.response)}</p>
+      <p>Teams are writing their responses. Play some thinking music!</p>
+      <ul>${eligible.map(t => `<li>${esc(t.name)} – ${t.answered ? '✅ submitted' : '✏️ writing'}</li>`).join('')}</ul>
+      <div class="big-actions"><button data-action="lockFinalAnswers">Lock responses & start the reveal</button></div>`;
+  }
+
+  function finalReveal() {
+    const f = state.final;
+    const rows = f.revealOrder.map(id => {
+      const e = f.entries.find(x => x.teamId === id) || {};
+      const judged = f.judged[id];
+      return `<div class="final-entry ${id === f.spotlightTeamId ? 'spot' : ''}">
+        <div>${teamLabel(teamById(state, id))}<div class="muted">${name(id)} · wager ${money(e.wager)}</div></div>
+        <div>${e.drawing ? `<img class="answer" src="${esc(e.drawing)}" alt="">` : ''}<div>${esc(e.text || (e.drawing ? '' : '(no response)'))}</div></div>
+        <div class="row">${judged === undefined ? `
+            <button class="secondary small" data-action="spotlight" data-team-id="${id}" ${id === f.spotlightTeamId ? 'disabled' : ''}>Show on board</button>
+            <button class="good small" data-action="judgeFinal" data-team-id="${id}" data-correct="true">Correct</button>
+            <button class="bad small" data-action="judgeFinal" data-team-id="${id}" data-correct="false">Incorrect</button>`
+          : `<b class="${judged ? 'gold' : ''}">${judged ? 'Correct' : 'Incorrect'}</b>`}</div>
+      </div>`;
+    }).join('');
+    return `<h2 style="margin:0" class="gold">Final Jeopardy reveal</h2>
+      <p>Response: <span class="response">${esc(f.response)}</span></p>
+      <p class="muted">Show each team on the board (lowest score first), then rule on it.</p>
+      <div class="stack">${rows}</div>
+      <div class="big-actions"><button data-action="finish">Finish game & show winners</button></div>`;
+  }
+
+  function gameOver() {
+    return `<h2 style="margin:0" class="gold">Game over!</h2>
+      <ol>${(state.standings || []).map(t => `<li>${esc(t.name)} – ${money(t.score)}</li>`).join('')}</ol>
+      <p>Results have been saved. <a href="/">Start a new game</a></p>`;
+  }
+</script>
+</body>
+</html>
