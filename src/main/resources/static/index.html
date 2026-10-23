@@ -25,8 +25,13 @@
     </div>
     <div class="panel stack">
       <h2>Join a game</h2>
+      <p class="muted" style="margin:0">Enter the room code shown on the host's screen.</p>
       <input type="text" id="code" placeholder="Room code" maxlength="4" autocapitalize="characters">
-      <button id="join" class="secondary">Join</button>
+      <div class="row" style="flex-wrap:nowrap">
+        <button id="join" class="secondary" style="flex:1">Join as a team</button>
+        <button id="board" class="secondary" style="flex:1">Show the board</button>
+      </div>
+      <p class="muted" style="font-size:13px;margin:0">Use "Show the board" on the computer connected to the TV.</p>
     </div>
   </div>
   <footer class="muted">
@@ -42,14 +47,16 @@
     const { code, hostKey } = await res.json();
     location.href = `/host.html?game=${encodeURIComponent(code)}&key=${encodeURIComponent(hostKey)}`;
   };
-  const join = async () => {
+  const go = page => async () => {
     const code = document.getElementById('code').value.trim().toUpperCase();
-    if (!code) return;
+    if (!code) return Jeo.toast('Enter the room code first');
     const res = await fetch(`/api/games/${encodeURIComponent(code)}`);
-    if (res.ok) location.href = `/play.html?game=${encodeURIComponent(code)}`;
+    if (res.ok) location.href = `/${page}.html?game=${encodeURIComponent(code)}`;
     else Jeo.toast('No game with that code');
   };
+  const join = go('play');
   document.getElementById('join').onclick = join;
+  document.getElementById('board').onclick = go('board');
   document.getElementById('code').addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
 </script>
 </body>
