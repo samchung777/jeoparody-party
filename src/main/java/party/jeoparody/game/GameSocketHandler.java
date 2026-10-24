@@ -167,6 +167,7 @@ public class GameSocketHandler extends TextWebSocketHandler {
             case "judgeFinal" -> game.judgeFinal(msg.path("teamId").asText(null), msg.path("correct").asBoolean());
             case "removeTeam" -> game.removeTeam(msg.path("teamId").asText(null));
             case "finish" -> game.finish();
+            case "playAgain" -> game.playAgain(games.clueSource());
             case "clueFeedback" -> {
                 long clueId = msg.path("clueId").asLong(-1);
                 String what = msg.path("feedbackAction").asText("");
@@ -186,6 +187,12 @@ public class GameSocketHandler extends TextWebSocketHandler {
 
     private boolean playerAction(Game game, Connection c, String action, JsonNode msg) {
         if (action.equals("ping")) {
+            return false;
+        }
+        if (action.equals("search")) {
+            // Only the searching phone gets the results; nothing changes for anyone else.
+            String query = msg.path("query").asText("");
+            send(c.session, Map.of("type", "searchResults", "query", query, "results", game.searchKeywords(query)));
             return false;
         }
         if (action.equals("join")) {

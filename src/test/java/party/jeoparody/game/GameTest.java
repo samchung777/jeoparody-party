@@ -157,7 +157,7 @@ class GameTest {
         game.startVoting(source);
         List<Long> pool = poolIds();
         assertEquals(Game.POOL_SIZE, pool.size());
-        assertThrows(GameException.class, () -> game.vote(red.id(), List.of(999L)));
+        assertThrows(GameException.class, () -> game.vote(red.id(), List.of(999L)), "not a playable category");
         assertThrows(GameException.class, () -> game.vote(red.id(), pool.subList(0, 13)));
         game.vote(red.id(), pool.subList(0, 12));
         assertTrue((Boolean) ((List<Map<String, Object>>) view(Game.Viewer.HOST).get("teams")).get(0).get("voted"));
@@ -463,5 +463,114 @@ class GameTest {
         assertEquals(2, game.teams().size());
         assertNotNull(view(Game.Viewer.HOST).get("controlTeamId"));
         assertThrows(GameException.class, () -> game.adjustScore(red.id(), 100));
+    }
+
+    // ------------------------------------------------------------------ search and play again
+
+    @Test
+    void searchFindsAnyPlayableCategoryNotJustThePool() {
+        game.startVoting(source);
+        List<Long> pool = poolIds();
+        long outside = source.keywords.stream().map(KeywordOption::id).filter(id -> !pool.contains(id)).findFirst()
+                .orElseThrow();
+        List<Map<String, Object>> hits = game.searchKeywords("keyword " + outside);
+        assertTrue(hits.stream().anyMatch(h -> h.get("id").equals(outside)));
+        Map<String, Object> hit = hits.stream().filter(h -> h.get("id").equals(outside)).findFirst().orElseThrow();
+        assertEquals(false, hit.get("inPool"));
+        assertTrue(game.searchKeywords("  ").isEmpty());
+        assertTrue(game.searchKeywords("PUNNY title " + 1).size() >= 1, "titles are searched too, case-insensitively");
+        assertTrue(game.searchKeywords("no such thing").isEmpty());
+    }
+
+    @Test
+    void votingForASearchedCategoryAddsItToTheSharedList() {
+        game.startVoting(source);
+        List<Long> pool = poolIds();
+        long outside = source.keywords.stream().map(KeywordOption::id).filter(id -> !pool.contains(id)).findFirst()
+                .orElseThrow();
+        game.vote(red.id(), List.of(outside, pool.get(0)));
+        List<Long> after = poolIds();
+        assertEquals(Game.POOL_SIZE + 1, after.size());
+        assertTrue(after.contains(outside));
+        Map<String, Object> boardEntry = ((List<Map<String, Object>>) view(Game.Viewer.BOARD).get("pool")).stream()
+                .filter(m -> m.get("id").equals(outside)).findFirst().orElseThrow();
+        assertEquals(1, boardEntry.get("votes"));
+        assertTrue((Boolean) game.searchKeywords("keyword " + outside).get(0).get("inPool"));
+        assertEquals(30, view(Game.Viewer.HOST).get("searchableCount"));
+    }
+
+    @Test
+    void theClueShowsItsOriginalKeyword() {
+        playToBoard();
+        int[] cell = findNormalCell();
+        game.selectCell(cell[0], cell[1]);
+        Map<String, Object> clue = (Map<String, Object>) view(Game.Viewer.BOARD).get("clue");
+        assertEquals(hostCategories().get(cell[0]).get("keyword"), clue.get("keyword"));
+    }
+
+    @Test
+    void playAgainKeepsTeamsResetsScoresAndReturnsToTheVote() {
+        playToBoard();
+        game.adjustScore(red.id(), 800);
+        int[] cell = findNormalCell();
+        game.selectCell(cell[0], cell[1]);
+        String firstGameClue = (String) ((Map<String, Object>) view(Game.Viewer.HOST).get("clue")).get("text");
+        game.reveal();
+        game.returnToBoard();
+        assertThrows(GameException.class, () -> game.playAgain(source), "only after the game is over");
+        game.finish();
+
+        game.playAgain(source);
+        assertEquals(Phase.VOTING, game.phase());
+        assertEquals(2, game.gameNumber());
+        assertEquals(3, game.teams().size());
+        assertEquals(0, red.score());
+        assertEquals("Red Team", red.name());
+        assertEquals(red, game.rejoin(red.id(), red.token()), "phones stay signed in");
+        assertEquals(Game.POOL_SIZE, poolIds().size());
+        assertFalse(((List<Map<String, Object>>) view(Game.Viewer.HOST).get("teams")).get(0).get("voted").equals(true));
+        assertNull(view(Game.Viewer.HOST).get("controlTeamId"));
+
+        // Second game: no clue from the first game comes back
+        playToBoardAgain();
+        Set<String> texts = new HashSet<>();
+        for (int c = 0; c < Game.COLUMNS; c++) {
+            for (int r = 0; r < Game.ROWS; r++) {
+                game.selectCell(c, r);
+                if (game.phase() == Phase.DAILY_DOUBLE_WAGER) {
+                    game.wager((String) view(Game.Viewer.HOST).get("controlTeamId"), 5);
+                }
+                texts.add((String) ((Map<String, Object>) view(Game.Viewer.HOST).get("clue")).get("text"));
+                game.reveal();
+                game.returnToBoard();
+            }
+        }
+        assertFalse(texts.contains(firstGameClue));
+    }
+
+    private void playToBoardAgain() {
+        List<Long> pool = poolIds();
+        game.vote(red.id(), pool.subList(0, 12));
+        game.closeVoting(source);
+        List<Map<String, Object>> finals = (List<Map<String, Object>>) view(Game.Viewer.HOST).get("finalOptions");
+        game.voteFinal(red.id(), (Long) finals.get(0).get("id"));
+        game.closeFinalVoting(source);
+    }
+
+    @Test
+    void unplayedSquaresFromAnEarlierGameCanComeBack() {
+        FakeClueSource small = new FakeClueSource(13); // exactly enough clues for one game
+        Game g = new Game("SMAL", "k", new BoardBuilder(new Random(3)), () -> java.util.UUID.randomUUID().toString(),
+                Clock.systemUTC());
+        Team t = g.join("Solo", null);
+        g.startVoting(small);
+        g.closeVoting(small);
+        g.voteFinal(t.id(), (Long) ((List<Map<String, Object>>) g.view(Game.Viewer.HOST, null).get("finalOptions"))
+                .get(0).get("id"));
+        g.closeFinalVoting(small);
+        g.finish(); // ended before playing anything
+        g.playAgain(small);
+        g.closeVoting(small); // would fail if the unplayed squares were still "used"
+        assertEquals(Phase.FINAL_VOTING, g.phase());
     }
 }

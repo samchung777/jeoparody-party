@@ -132,7 +132,7 @@
           ${o.votes ? `<div class="n">${o.votes}</div>` : ''}
           <div class="bar" style="width:${100 * (o.votes || 0) / max}%"></div>
         </div>`).join('')}</div>
-      <div class="big muted">${done} of ${s.teams.length} teams have voted</div>
+      <div class="big muted">${done} of ${s.teams.length} teams have voted${isFinal ? '' : ` · search all ${s.searchableCount || 0} categories on your phone`}</div>
     </div>`;
   }
 
@@ -149,10 +149,13 @@
     return html + '</div>';
   }
 
+  /** "Punny Title · keyword" for the clue screens (keyword skipped if identical). */
+  const withKeyword = (title, keyword) => esc(title) + (keyword && keyword !== title ? ` <span style="opacity:.7">· ${esc(keyword)}</span>` : '');
+
   function dailyDouble(s) {
     const team = teamById(s, s.clue.dailyDoubleTeamId);
     return `<div class="overlay">
-      <div class="cat-line title-font">${esc(s.clue.category)}</div>
+      <div class="cat-line title-font">${withKeyword(s.clue.category, s.clue.keyword)}</div>
       <div class="dd title-font">DAILY DOUBLE!</div>
       <div class="big">${team ? esc(team.name) : 'The team in control'} is making a wager…</div>
     </div>`;
@@ -171,7 +174,7 @@
     }
     const label = c.dailyDouble ? `DAILY DOUBLE · WAGER ${money(c.wager)}` : `$${c.value}`;
     return `<div class="overlay">
-      <div class="cat-line title-font">${esc(c.category)} · ${label}</div>
+      <div class="cat-line title-font">${withKeyword(c.category, c.keyword)} · ${label}</div>
       <div class="clue clue-font">${esc(c.text)}</div>
       ${c.revealed ? `<div class="response clue-font">${esc(c.response)}</div>` : ''}
       <div class="status">${status}</div>
@@ -183,6 +186,7 @@
     return `<div class="overlay">
       <div class="title-font gold huge">FINAL JEOPARDY!</div>
       <div class="clue title-font" style="margin-top:3vh">${esc(s.final.category)}</div>
+      ${s.final.keyword && s.final.keyword !== s.final.category ? `<div class="big" style="opacity:.7">${esc(s.final.keyword)}</div>` : ''}
       <div class="status">${waiting ? `Waiting for ${waiting} wager${waiting > 1 ? 's' : ''}…` : 'All wagers are in!'}</div>
     </div>`;
   }
@@ -190,7 +194,7 @@
   function finalClue(s) {
     const pending = s.teams.filter(t => t.finalEligible && !t.answered).length;
     return `<div class="overlay">
-      <div class="cat-line title-font">FINAL JEOPARDY · ${esc(s.final.category)}</div>
+      <div class="cat-line title-font">FINAL JEOPARDY · ${withKeyword(s.final.category, s.final.keyword)}</div>
       <div class="clue clue-font">${esc(s.final.text)}</div>
       <div class="status">${pending ? `${pending} team${pending > 1 ? 's' : ''} still writing…` : 'All responses are in!'}</div>
     </div>`;

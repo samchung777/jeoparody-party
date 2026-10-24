@@ -12,6 +12,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.text.Normalizer;
+import java.util.Locale;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -28,6 +30,7 @@ public final class Game {
     public static final int MIN_CLUES_PER_KEYWORD = ROWS;
     public static final int MIN_DAILY_DOUBLE_WAGER = 5;
     public static final int MAX_TEAMS = 12;
+    public static final int MAX_SEARCH_RESULTS = 20;
     static final int MAX_NAME_LENGTH = 24;
     static final int MAX_DRAWING_LENGTH = 300_000;
     static final int MAX_TEXT_LENGTH = 120;
@@ -53,12 +56,15 @@ public final class Game {
     private final Clock clock;
     private final Instant createdAt;
     private Instant lastActivity;
+    private Instant startedAt;
+    private int gameNumber = 1;
 
     private final Map<String, Team> teams = new LinkedHashMap<>();
     private Phase phase = Phase.LOBBY;
 
-    // Voting
-    private List<KeywordOption> pool = List.of();
+    // Voting: a random pool, plus anything teams find with search
+    private List<KeywordOption> eligible = List.of();
+    private final List<KeywordOption> pool = new ArrayList<>();
     private final Map<String, Set<Long>> ballots = new HashMap<>();
     private List<KeywordOption> finalOptions = List.of();
     private final Map<String, Long> finalBallots = new HashMap<>();
@@ -68,6 +74,8 @@ public final class Game {
     private Board doubleJeopardyBoard;
     private Board currentBoard;
     private final Set<Long> usedClueIds = new HashSet<>();
+    /** Clues actually shown in earlier games tonight: never reused. Unplayed squares become available again. */
+    private final Set<Long> shownInEarlierGames = new HashSet<>();
     private String controlTeamId;
 
     // The clue currently on screen
@@ -102,10 +110,15 @@ public final class Game {
         this.clock = clock;
         this.createdAt = clock.instant();
         this.lastActivity = createdAt;
+        this.startedAt = createdAt;
     }
 
     public String code() { return code; }
     public Instant createdAt() { return createdAt; }
+    /** When the current game (this room may host several in a row) started. */
+    public synchronized Instant startedAt() { return startedAt; }
+    /** 1 for the first game in this room, 2 after "play again", ... */
+    public synchronized int gameNumber() { return gameNumber; }
     public synchronized Instant lastActivity() { return lastActivity; }
     public synchronized Phase phase() { return phase; }
 
@@ -183,13 +196,51 @@ public final class Game {
         if (teams.isEmpty()) {
             throw new GameException("Wait for at least one team to join");
         }
-        List<KeywordOption> eligible = source.eligibleKeywords(MIN_CLUES_PER_KEYWORD);
-        if (eligible.size() < BOARD_CATEGORIES + 1) {
-            throw new GameException("Only " + eligible.size() + " keywords have enough clues; need "
+        List<KeywordOption> available = source.eligibleKeywords(MIN_CLUES_PER_KEYWORD);
+        if (available.size() < BOARD_CATEGORIES + 1) {
+            throw new GameException("Only " + available.size() + " keywords have enough clues; need "
                     + (BOARD_CATEGORIES + 1) + ". Import more trivia first.");
         }
-        pool = builder.pickPool(eligible, POOL_SIZE);
+        eligible = List.copyOf(available);
+        pool.clear();
+        pool.addAll(builder.pickPool(eligible, POOL_SIZE));
         phase = Phase.VOTING;
+    }
+
+    /**
+     * Searches every playable keyword (not just the random pool) by keyword or title. Every word typed must
+     * appear; accents and case don't matter.
+     */
+    public synchronized List<Map<String, Object>> searchKeywords(String query) {
+        require(Phase.VOTING);
+        List<String> words = List.of(fold(query).split(" ")).stream().filter(w -> !w.isBlank()).toList();
+        if (words.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> inPool = new HashSet<>();
+        pool.forEach(k -> inPool.add(k.id()));
+        return eligible.stream()
+                .filter(k -> {
+                    String haystack = fold(k.name() + " " + k.displayTitle());
+                    return words.stream().allMatch(haystack::contains);
+                })
+                .sorted(Comparator.comparing((KeywordOption k) -> !fold(k.name()).startsWith(words.get(0)))
+                        .thenComparing(Comparator.comparingInt(KeywordOption::clueCount).reversed()))
+                .limit(MAX_SEARCH_RESULTS)
+                .map(k -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", k.id());
+                    m.put("title", k.displayTitle());
+                    m.put("keyword", k.name());
+                    m.put("inPool", inPool.contains(k.id()));
+                    return m;
+                })
+                .toList();
+    }
+
+    private static String fold(String s) {
+        String t = Normalizer.normalize(s == null ? "" : s, Normalizer.Form.NFKD).replaceAll("\\p{M}+", "");
+        return t.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", " ").trim();
     }
 
     public synchronized void vote(String teamId, Collection<Long> keywordIds) {
@@ -200,10 +251,18 @@ public final class Game {
         if (ballot.size() > BOARD_CATEGORIES) {
             throw new GameException("Pick at most " + BOARD_CATEGORIES + " keywords");
         }
+        Map<Long, KeywordOption> playable = new HashMap<>();
+        eligible.forEach(k -> playable.put(k.id(), k));
+        if (!playable.keySet().containsAll(ballot)) {
+            throw new GameException("That category isn't available");
+        }
+        // A category found with search joins the shared list, so every screen can see and vote for it.
         Set<Long> poolIds = new HashSet<>();
         pool.forEach(k -> poolIds.add(k.id()));
-        if (!poolIds.containsAll(ballot)) {
-            throw new GameException("That keyword isn't in this game's pool");
+        for (Long id : ballot) {
+            if (poolIds.add(id)) {
+                pool.add(playable.get(id));
+            }
         }
         ballots.put(teamId, ballot);
     }
@@ -242,6 +301,9 @@ public final class Game {
         builder.placeDailyDoubles(doubleJeopardyBoard);
 
         finalOptions = pool.stream().filter(k -> !chosen.contains(k.id())).toList();
+        if (finalOptions.isEmpty()) {
+            throw new GameException("No categories left for Final Jeopardy");
+        }
         phase = Phase.FINAL_VOTING;
     }
 
@@ -507,6 +569,47 @@ public final class Game {
         return false;
     }
 
+    /**
+     * Starts a new game in the same room with the same teams (names, drawings, phones stay connected).
+     * Scores reset and play goes straight to the category vote. Clues used earlier tonight stay used,
+     * so the new boards don't repeat them.
+     */
+    public synchronized void playAgain(ClueSource source) {
+        touch();
+        require(Phase.GAME_OVER);
+        if (teams.isEmpty()) {
+            throw new GameException("No teams left to play again");
+        }
+        teams.values().forEach(Team::resetScore);
+        played.forEach(p -> shownInEarlierGames.add(p.clue().id()));
+        usedClueIds.clear();
+        usedClueIds.addAll(shownInEarlierGames);
+        eligible = List.of();
+        pool.clear();
+        ballots.clear();
+        finalOptions = List.of();
+        finalBallots.clear();
+        jeopardyBoard = null;
+        doubleJeopardyBoard = null;
+        currentBoard = null;
+        controlTeamId = null;
+        resetClueState();
+        finalCategory = null;
+        finalClue = null;
+        finalEligible = List.of();
+        finalWagers.clear();
+        finalAnswers.clear();
+        finalJudged.clear();
+        revealOrder = List.of();
+        spotlightTeamId = null;
+        played.clear();
+        feedback.clear();
+        gameNumber++;
+        startedAt = clock.instant();
+        phase = Phase.LOBBY;
+        startVoting(source); // throws (and stays in the lobby) if there isn't enough trivia left
+    }
+
     /** Host ends the game (normally after Final Jeopardy, but allowed any time). */
     public synchronized void finish() {
         touch();
@@ -528,6 +631,7 @@ public final class Game {
         Map<String, Object> v = new LinkedHashMap<>();
         v.put("code", code);
         v.put("phase", phase.name());
+        v.put("gameNumber", gameNumber);
         v.put("round", currentBoard == null ? null : currentBoard.round().name());
         v.put("controlTeamId", controlTeamId);
 
@@ -551,6 +655,7 @@ public final class Game {
 
         if (phase == Phase.VOTING) {
             v.put("maxVotes", BOARD_CATEGORIES);
+            v.put("searchableCount", eligible.size());
             v.put("pool", keywordViews(pool, tally(ballots.values()), viewer != Viewer.PLAYER));
         }
         if (phase == Phase.FINAL_VOTING) {
@@ -628,7 +733,9 @@ public final class Game {
         c.put("column", currentCell.column());
         c.put("row", currentCell.row());
         c.put("value", currentCell.value());
-        c.put("category", currentBoard.categories().get(currentCell.column()).keyword().displayTitle());
+        KeywordOption categoryKeyword = currentBoard.categories().get(currentCell.column()).keyword();
+        c.put("category", categoryKeyword.displayTitle());
+        c.put("keyword", categoryKeyword.name());
         c.put("dailyDouble", isDailyDouble());
         c.put("dailyDoubleTeamId", dailyDoubleTeamId);
         c.put("wager", dailyDoubleWager);
@@ -654,6 +761,7 @@ public final class Game {
         boolean host = viewer == Viewer.HOST;
         Map<String, Object> f = new LinkedHashMap<>();
         f.put("category", finalCategory.displayTitle());
+        f.put("keyword", finalCategory.name());
         if (phase.compareTo(Phase.FINAL_ANSWER) >= 0) {
             f.put("text", finalClue.clue());
         }

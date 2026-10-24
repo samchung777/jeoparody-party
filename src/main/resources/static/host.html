@@ -191,6 +191,8 @@
   }
 
   const name = id => { const t = teamById(state, id); return t ? esc(t.name) : '—'; };
+  /** "Punny Title · keyword" (the keyword is skipped when it's the same as the title). */
+  const withKeyword = (title, keyword) => esc(title) + (keyword && keyword !== title ? ` <span class="muted">· ${esc(keyword)}</span>` : '');
 
   function lobby() {
     return `<h2 style="margin:0">Waiting for teams</h2>
@@ -205,7 +207,8 @@
     const voted = state.teams.filter(t => isFinal ? t.finalVoted : t.voted);
     return `<h2 style="margin:0">${isFinal ? 'Final Jeopardy category vote' : 'Board category vote'}</h2>
       <p>${voted.length} of ${state.teams.length} teams voted${voted.length ? ': ' + voted.map(t => esc(t.name)).join(', ') : ''}.
-         ${isFinal ? 'The top keyword becomes the Final Jeopardy category.' : 'The top 12 become categories, alternating between Jeopardy and Double Jeopardy.'}</p>
+         ${isFinal ? 'The top keyword becomes the Final Jeopardy category.' : `The top 12 become categories, alternating between Jeopardy and Double Jeopardy.
+         Besides these random picks, teams can search all ${state.searchableCount || 0} categories on their phones; anything they vote for joins this list.`}</p>
       <div class="vote-list">${options.map(o => `<div class="chip"><span>${esc(o.title)}</span><small>${esc(o.keyword)}</small><span class="votes">${o.votes} vote${o.votes === 1 ? '' : 's'}</span></div>`).join('')}</div>
       <div class="big-actions"><button data-action="${isFinal ? 'closeFinalVoting' : 'closeVoting'}">${isFinal ? 'Lock Final category & start the game' : 'Close voting & build the boards'}</button></div>`;
   }
@@ -237,7 +240,7 @@
     const c = state.clue;
     const team = teamById(state, c.dailyDoubleTeamId);
     const max = team ? Math.max(team.score, state.round === 'DOUBLE_JEOPARDY' ? 2000 : 1000) : 0;
-    return `<h2 style="margin:0" class="gold">Daily Double! · ${esc(c.category)} · $${c.value}</h2>
+    return `<h2 style="margin:0" class="gold">Daily Double! · ${withKeyword(c.category, c.keyword)} · $${c.value}</h2>
       <p><b>${name(c.dailyDoubleTeamId)}</b> is entering a wager on their device ($5 – ${money(max)}).</p>
       <p class="muted">Wrong team? Use "Give control" on the left. You can also enter the wager for them:</p>
       <div class="row"><input id="hostWager" class="wager" type="number" min="5" max="${max}" placeholder="Wager">
@@ -261,7 +264,7 @@
       actions = `<button data-action="openBuzzers">Open buzzers</button><button class="secondary" data-action="reveal">Reveal response</button>`;
     }
     const locked = c.lockedOut.length ? `<p class="muted">Locked out: ${c.lockedOut.map(name).join(', ')}</p>` : '';
-    return `<h2 style="margin:0">${esc(c.category)} · ${c.dailyDouble ? `Daily Double · wager ${money(c.wager)}` : '$' + c.value}</h2>
+    return `<h2 style="margin:0">${withKeyword(c.category, c.keyword)} · ${c.dailyDouble ? `Daily Double · wager ${money(c.wager)}` : '$' + c.value}</h2>
       <p class="clue-text clue-font">${esc(c.text)}</p>
       <p class="response">${esc(c.response)}</p>
       ${c.lastResult ? `<p>Last ruling: <b>${c.lastResult}</b></p>` : ''}
@@ -273,7 +276,7 @@
   function finalWager() {
     const f = state.final;
     const eligible = state.teams.filter(t => t.finalEligible);
-    return `<h2 style="margin:0" class="gold">Final Jeopardy · ${esc(f.category)}</h2>
+    return `<h2 style="margin:0" class="gold">Final Jeopardy · ${withKeyword(f.category, f.keyword)}</h2>
       <p>Teams with a positive score wager on their devices. Missing wagers count as $0.</p>
       <ul>${eligible.map(t => `<li>${esc(t.name)} – ${money(t.score)} – ${t.wagered ? '✅ wagered' : '⏳ waiting'}</li>`).join('')}</ul>
       <p class="muted">Response (only you see this): <span class="response">${esc(f.response)}</span></p>
@@ -283,7 +286,7 @@
   function finalAnswer() {
     const f = state.final;
     const eligible = state.teams.filter(t => t.finalEligible);
-    return `<h2 style="margin:0" class="gold">Final Jeopardy · ${esc(f.category)}</h2>
+    return `<h2 style="margin:0" class="gold">Final Jeopardy · ${withKeyword(f.category, f.keyword)}</h2>
       <p class="clue-text clue-font">${esc(f.text)}</p>
       <p class="response">${esc(f.response)}</p>
       <p>Teams are writing their responses. Play some thinking music!</p>
@@ -318,7 +321,11 @@
     const badge = f => f === 'remove' ? '<b class="gold">Removed</b>' : f === 'reword' ? '<b class="gold">Rewording</b>' : '';
     return `<h2 style="margin:0" class="gold">Game over!</h2>
       <ol>${(state.standings || []).map(t => `<li>${esc(t.name)} – ${money(t.score)}</li>`).join('')}</ol>
-      <p>Results have been saved. <a href="/">Start a new game</a></p>
+      <p>Results have been saved.</p>
+      <div class="row big-actions">
+        <button data-action="playAgain" data-confirm="Start a new game with the same teams? Scores reset to $0.">Play again with the same teams</button>
+        <a href="/"><button class="secondary">New room</button></a>
+      </div>
       <h3 style="margin-bottom:0">Review the clues you played</h3>
       <p class="muted" style="margin-top:4px">Flag any clue that was wrong, confusing or no fun so it doesn't come back.</p>
       <div class="stack">${played.map(p => `

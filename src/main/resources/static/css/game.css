@@ -35,7 +35,7 @@ button.good { background: var(--green); color: #000; }
 button.bad { background: var(--red); color: #fff; }
 button.small { padding: 4px 10px; font-size: 13px; }
 button:disabled { opacity: .4; cursor: default; }
-input[type=text], input[type=number] {
+input[type=text], input[type=number], input[type=search] {
   font: inherit; padding: 10px 12px; border-radius: 8px; border: 2px solid var(--line);
   background: #fff; color: #000; width: 100%;
 }

@@ -24,4 +24,5 @@ public final class Team {
     public int score() { return score; }
 
     void addScore(int delta) { score += delta; }
+    void resetScore() { score = 0; }
 }

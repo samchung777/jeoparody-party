@@ -65,12 +65,13 @@ public class GameService {
 
     /** Called after every successful action; saves the result the first time a game reaches GAME_OVER. */
     public void afterAction(Game game) {
-        if (game.phase() == Phase.GAME_OVER && savedResults.add(game.code())) {
+        String resultKey = game.code() + "#" + game.gameNumber(); // a room can play several games in a row
+        if (game.phase() == Phase.GAME_OVER && savedResults.add(resultKey)) {
             try {
                 long id = repository.saveResult(game);
                 log.info("Saved result {} for game {}", id, game.code());
             } catch (RuntimeException e) {
-                savedResults.remove(game.code());
+                savedResults.remove(resultKey);
                 log.warn("Could not save result for game {}: {}", game.code(), e.getMessage());
             }
         }

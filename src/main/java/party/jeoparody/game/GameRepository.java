@@ -61,7 +61,7 @@ public class GameRepository implements ClueSource {
                     "INSERT INTO game_result (code, started_at, finished_at, team_count) VALUES (?, ?, ?, ?)",
                     Statement.RETURN_GENERATED_KEYS);
             ps.setString(1, game.code());
-            ps.setTimestamp(2, Timestamp.from(game.createdAt()));
+            ps.setTimestamp(2, Timestamp.from(game.startedAt()));
             ps.setTimestamp(3, Timestamp.from(game.lastActivity()));
             ps.setInt(4, standings.size());
             return ps;

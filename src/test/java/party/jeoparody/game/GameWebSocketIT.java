@@ -258,6 +258,49 @@ class GameWebSocketIT {
         assertEquals(0, host.state.path("teams").get(0).path("score").asInt(), "Alice (" + aliceId + ") never scored");
     }
 
+    @Test
+    void searchAndPlayAgainOverWebSockets() throws Exception {
+        JsonNode created = createGame();
+        String code = created.path("code").asText();
+        Screen host = connect("game=" + code + "&role=host&key=" + created.path("hostKey").asText());
+        Screen alice = connect("game=" + code + "&role=player");
+        alice.send("join", Map.of("name", "Alice"));
+        String aliceId = alice.awaitMessage("joined").path("teamId").asText();
+        host.awaitState(s -> s.path("teams").size() == 1);
+        host.send("startVoting");
+        alice.awaitPhase("VOTING");
+
+        // Search reaches beyond the random pool, and only the searching phone gets results
+        alice.send("search", Map.of("query", "theme 3"));
+        JsonNode results = alice.awaitMessage("searchResults").path("results");
+        assertTrue(results.size() >= 1);
+        long found = results.get(0).path("id").asLong();
+        alice.send("vote", Map.of("keywordIds", List.of(found)));
+        host.awaitState(s -> {
+            for (JsonNode k : s.path("pool")) {
+                if (k.path("id").asLong() == found && k.path("votes").asInt() == 1) {
+                    return true;
+                }
+            }
+            return false;
+        });
+
+        // Finish quickly, then play again with the same team
+        host.send("closeVoting");
+        JsonNode finals = alice.awaitPhase("FINAL_VOTING");
+        alice.send("voteFinal", Map.of("keywordId", finals.path("finalOptions").get(0).path("id").asLong()));
+        host.send("closeFinalVoting");
+        host.awaitPhase("BOARD");
+        host.send("adjustScore", Map.of("teamId", aliceId, "delta", 400));
+        host.send("finish");
+        host.awaitPhase("GAME_OVER");
+        host.send("playAgain");
+        JsonNode again = alice.awaitPhase("VOTING");
+        assertEquals(2, again.path("gameNumber").asInt());
+        assertEquals(0, again.path("me").path("score").asInt());
+        assertEquals("Alice", again.path("me").path("name").asText());
+    }
+
     private static int[] firstNormalCell(JsonNode hostState) {
         JsonNode categories = hostState.path("board").path("categories");
         for (int c = 0; c < categories.size(); c++) {

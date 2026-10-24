@@ -26,6 +26,8 @@
     .options .chip { width: 100%; }
     .counter { position: sticky; top: 0; background: var(--navy); padding: 8px 0; z-index: 1; }
     .center { text-align: center; }
+    #searchResults:empty { display: none; }
+    .search-note { font-size: 13px; }
   </style>
 </head>
 <body>
@@ -54,6 +56,13 @@
     <p id="wagerHint" class="muted"></p>
     <input type="number" id="wagerInput" inputmode="numeric">
     <button id="wagerBtn">Lock in wager</button>
+  </section>
+
+  <section id="search" class="stack hidden" style="margin-bottom:16px">
+    <h2 style="margin-bottom:0">Find a category</h2>
+    <input type="search" id="searchInput" placeholder="Search every category, e.g. Zelda, Hamilton, Shounen" autocomplete="off">
+    <div id="searchResults" class="options"></div>
+    <p id="searchNote" class="muted search-note" style="margin:0"></p>
   </section>
 
   <section id="finalAnswer" class="stack hidden">
@@ -105,6 +114,10 @@
       onMessage: m => {
         if (m.type === 'joined') save({ teamId: m.teamId, token: m.token });
         if (m.type === 'rejoinFailed') save(null);
+        if (m.type === 'searchResults' && m.query === $('searchInput').value.trim()) {
+          searchResults = m.results;
+          renderSearch();
+        }
       },
       onStatus: up => $('conn').classList.toggle('on', up),
       onFatal: msg => { $('main').innerHTML = `<p>${esc(msg)}</p><p><a href="/play.html">Enter another code</a></p>`; hideAll(); }
@@ -124,6 +137,15 @@
       conn.send('finalAnswer', { drawing: answerPad.isEmpty() ? null : answerPad.toDataURL(), text: $('answerText').value });
     };
 
+    // Category search: debounced, results come back only to this phone.
+    let searchTimer;
+    $('searchInput').addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      const q = $('searchInput').value.trim();
+      if (!q) { searchResults = []; renderSearch(); return; }
+      searchTimer = setTimeout(() => conn.send('search', { query: q }, true), 250);
+    });
+
     // Dynamic content uses delegated clicks.
     $('main').addEventListener('pointerdown', e => {
       if (e.target.closest('#buzz') && state && state.me && state.me.canBuzz) {
@@ -132,7 +154,7 @@
         if (navigator.vibrate) navigator.vibrate(40);
       }
     });
-    $('main').addEventListener('click', e => {
+    const onChipClick = e => {
       const chip = e.target.closest('[data-kw]');
       if (!chip || !state || !state.me) return;
       const id = Number(chip.dataset.kw);
@@ -145,11 +167,25 @@
       } else if (state.phase === 'FINAL_VOTING') {
         conn.send('voteFinal', { keywordId: id });
       }
-    });
+    };
+    $('main').addEventListener('click', onChipClick);
+    $('searchResults').addEventListener('click', onChipClick);
+  }
+
+  let searchResults = [];
+
+  function renderSearch() {
+    const picked = new Set((state && state.me && state.me.ballot) || []);
+    $('searchResults').innerHTML = searchResults.map(o => `
+      <button class="chip ${picked.has(o.id) ? 'on' : ''}" data-kw="${o.id}">
+        <span>${esc(o.title)}</span><small>${esc(o.keyword)}</small></button>`).join('');
+    const q = $('searchInput').value.trim();
+    $('searchNote').textContent = !q ? `Or pick from the random categories below. Searching covers all ${(state && state.searchableCount) || 0}.`
+      : searchResults.length ? 'Tap to vote. A searched category joins everyone\'s list.' : 'No categories match that.';
   }
 
   function hideAll() {
-    ['join', 'wager', 'finalAnswer'].forEach(id => $(id).classList.add('hidden'));
+    ['join', 'wager', 'finalAnswer', 'search'].forEach(id => $(id).classList.add('hidden'));
   }
 
   function show(id) {
@@ -201,6 +237,13 @@
     } else {
       show(null);
     }
+    if (s.phase === 'VOTING') {
+      $('search').classList.remove('hidden');
+      renderSearch(); // refresh the "picked" highlights
+    } else if ($('searchInput').value) {
+      $('searchInput').value = '';
+      searchResults = [];
+    }
     $('main').innerHTML = html();
   }
 
@@ -233,7 +276,8 @@
     else if (c.revealed) { label = '—'; }
     else if (me.canBuzz && c.buzzersOpen) { cls = 'ready'; label = 'BUZZ'; }
     else if (c.answeringTeamId) { label = 'WAIT'; }
-    return `<p class="clue-small clue-font center">${esc(c.text)}</p>
+    return `<p class="center muted" style="margin-bottom:0">${esc(c.category)}${c.keyword && c.keyword !== c.category ? ' · ' + esc(c.keyword) : ''} · $${c.value}</p>
+      <p class="clue-small clue-font center">${esc(c.text)}</p>
       <button id="buzz" class="buzz ${cls}">${label}</button>
       ${c.revealed ? `<p class="center gold clue-font">${esc(c.response || '')}</p>` : ''}`;
   }
