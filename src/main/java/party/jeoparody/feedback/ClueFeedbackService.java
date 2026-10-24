@@ -81,6 +81,49 @@ public class ClueFeedbackService {
         jdbc.update("INSERT INTO clue_feedback (clue_id, action, reason) VALUES (?, 'restore', 'other')", clueId);
     }
 
+    /** A category (keyword) a host removed from future games. */
+    public record RemovedCategory(long id, String name, String title, String note, Instant removedAt, int clueCount) {
+    }
+
+    /**
+     * Removes a whole category from future games: the keyword is retired (hidden from the vote pool, search
+     * and boards). Its clues are kept, since most also belong to other keywords.
+     */
+    @Transactional
+    public void removeKeyword(long keywordId, String note, String gameCode) {
+        String cleanNote = note == null || note.isBlank() ? null : note.strip();
+        if (cleanNote != null && cleanNote.length() > MAX_NOTE) {
+            cleanNote = cleanNote.substring(0, MAX_NOTE);
+        }
+        String stored = gameCode == null ? cleanNote : "game " + gameCode + (cleanNote == null ? "" : ": " + cleanNote);
+        int updated = jdbc.update("""
+                UPDATE keyword SET retired_at = COALESCE(retired_at, CURRENT_TIMESTAMP), retired_note = ?
+                WHERE id = ?
+                """, stored, keywordId);
+        if (updated == 0) {
+            throw new IllegalArgumentException("Category " + keywordId + " not found");
+        }
+        log.info("Category {} removed{}", keywordId, stored == null ? "" : " (" + stored + ")");
+    }
+
+    public void restoreKeyword(long keywordId) {
+        if (jdbc.update("UPDATE keyword SET retired_at = NULL, retired_note = NULL WHERE id = ?", keywordId) == 0) {
+            throw new IllegalArgumentException("Category " + keywordId + " not found");
+        }
+    }
+
+    public List<RemovedCategory> removedKeywords() {
+        return jdbc.query("""
+                SELECT k.id, k.name, k.title, k.retired_note, k.retired_at, COUNT(ck.clue_id) AS clue_count
+                FROM keyword k LEFT JOIN clue_keyword ck ON ck.keyword_id = k.id
+                WHERE k.retired_at IS NOT NULL
+                GROUP BY k.id, k.name, k.title, k.retired_note, k.retired_at
+                ORDER BY k.retired_at DESC
+                """,
+                (rs, i) -> new RemovedCategory(rs.getLong("id"), rs.getString("name"), rs.getString("title"),
+                        rs.getString("retired_note"), rs.getTimestamp("retired_at").toInstant(), rs.getInt("clue_count")));
+    }
+
     /** Most recent remove/reword feedback, newest first. */
     public List<FlaggedClue> recent(int limit) {
         return jdbc.query("""

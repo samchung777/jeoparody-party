@@ -84,7 +84,7 @@ public class TriviaRepository {
                 FROM keyword k
                 JOIN clue_keyword ck ON ck.keyword_id = k.id
                 JOIN clue cl ON cl.id = ck.clue_id
-                WHERE cl.retired_at IS NULL AND cl.jeopardy_clue IS NOT NULL
+                WHERE cl.retired_at IS NULL AND cl.jeopardy_clue IS NOT NULL AND k.retired_at IS NULL
                 GROUP BY k.id, k.name, k.title
                 HAVING COUNT(*) >= ?
                 ORDER BY total DESC, k.name

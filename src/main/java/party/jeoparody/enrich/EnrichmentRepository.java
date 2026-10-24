@@ -69,6 +69,7 @@ public class EnrichmentRepository {
                 FROM keyword k
                 JOIN clue_keyword ck ON ck.keyword_id = k.id
                 JOIN clue cl ON cl.id = ck.clue_id AND cl.retired_at IS NULL
+                WHERE k.retired_at IS NULL
                 GROUP BY k.id, k.name
                 ORDER BY COUNT(*) DESC, k.name
                 LIMIT ?
@@ -93,7 +94,7 @@ public class EnrichmentRepository {
                 FROM keyword k
                 JOIN clue_keyword ck ON ck.keyword_id = k.id
                 JOIN clue cl ON cl.id = ck.clue_id AND cl.retired_at IS NULL
-                WHERE k.title IS NULL
+                WHERE k.title IS NULL AND k.retired_at IS NULL
                 GROUP BY k.id, k.name
                 HAVING COUNT(*) >= ?
                 ORDER BY COUNT(*) DESC

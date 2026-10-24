@@ -173,14 +173,18 @@
   }
 
   let searchResults = [];
+  let searchPhase = null;
 
   function renderSearch() {
-    const picked = new Set((state && state.me && state.me.ballot) || []);
+    const me = (state && state.me) || {};
+    const isFinal = state && state.phase === 'FINAL_VOTING';
+    const picked = new Set(isFinal ? (me.finalVote == null ? [] : [me.finalVote]) : (me.ballot || []));
     $('searchResults').innerHTML = searchResults.map(o => `
       <button class="chip ${picked.has(o.id) ? 'on' : ''}" data-kw="${o.id}">
         <span>${esc(o.title)}</span><small>${esc(o.keyword)}</small></button>`).join('');
     const q = $('searchInput').value.trim();
-    $('searchNote').textContent = !q ? `Or pick from the random categories below. Searching covers all ${(state && state.searchableCount) || 0}.`
+    $('searchNote').textContent = !q ? (isFinal ? 'Type any category that isn\'t on a board, or pick one below.'
+        : `Or pick from the random categories below. Searching covers all ${(state && state.searchableCount) || 0}.`)
       : searchResults.length ? 'Tap to vote. A searched category joins everyone\'s list.' : 'No categories match that.';
   }
 
@@ -237,7 +241,12 @@
     } else {
       show(null);
     }
-    if (s.phase === 'VOTING') {
+    if (s.phase === 'VOTING' || s.phase === 'FINAL_VOTING') {
+      if (searchPhase !== s.phase) { // new vote: start with an empty search
+        searchPhase = s.phase;
+        $('searchInput').value = '';
+        searchResults = [];
+      }
       $('search').classList.remove('hidden');
       renderSearch(); // refresh the "picked" highlights
     } else if ($('searchInput').value) {

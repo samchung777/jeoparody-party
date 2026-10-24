@@ -107,4 +107,26 @@ class ClueFeedbackServiceIT extends IntegrationTest {
         assertThrows(IllegalArgumentException.class, () -> feedback.submit(clue, "delete", "wrong", null, null));
         assertThrows(IllegalArgumentException.class, () -> feedback.restore(999_999));
     }
+
+    @Test
+    void removingACategoryHidesItFromGamesAndSearchButKeepsItsClues() {
+        for (int i = 0; i < 5; i++) {
+            TestData.playableClue(jdbc, category, "easy", "Seventies Q" + i + "?", "A" + i, "70s Movies", "Jaws");
+        }
+        assertTrue(games.eligibleKeywords(5).stream().anyMatch(k -> k.id() == keywordId));
+
+        feedback.removeKeyword(keywordId, "too broad", "ABCD");
+        assertTrue(games.eligibleKeywords(5).stream().noneMatch(k -> k.id() == keywordId));
+        assertTrue(games.eligibleKeywords(5).stream().anyMatch(k -> k.name().equals("Jaws")), "shared clues still play");
+        assertEquals(0, TestData.count(jdbc, "SELECT COUNT(*) FROM clue WHERE retired_at IS NOT NULL"));
+        List<ClueFeedbackService.RemovedCategory> removed = feedback.removedKeywords();
+        assertEquals(1, removed.size());
+        assertEquals("70s Movies", removed.get(0).name());
+        assertEquals("game ABCD: too broad", removed.get(0).note(), "the note records which game it came from");
+
+        feedback.restoreKeyword(keywordId);
+        assertTrue(games.eligibleKeywords(5).stream().anyMatch(k -> k.id() == keywordId));
+        assertTrue(feedback.removedKeywords().isEmpty());
+        assertThrows(IllegalArgumentException.class, () -> feedback.removeKeyword(999_999, null, null));
+    }
 }

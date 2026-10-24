@@ -43,7 +43,7 @@ public final class Game {
     }
 
     /** A clue that has been shown in this game, for the host's post-game review. */
-    record PlayedClue(CandidateClue clue, String category, int value) {
+    record PlayedClue(CandidateClue clue, String category, int value, long keywordId, String keyword) {
     }
 
     /** Host feedback actions: retire the clue, or have Gemini reword it. */
@@ -66,7 +66,9 @@ public final class Game {
     private List<KeywordOption> eligible = List.of();
     private final List<KeywordOption> pool = new ArrayList<>();
     private final Map<String, Set<Long>> ballots = new HashMap<>();
-    private List<KeywordOption> finalOptions = List.of();
+    private final List<KeywordOption> finalOptions = new ArrayList<>();
+    /** Keywords already on the two boards: can't also be Final Jeopardy. */
+    private final Set<Long> boardKeywordIds = new HashSet<>();
     private final Map<String, Long> finalBallots = new HashMap<>();
 
     // Boards
@@ -101,6 +103,8 @@ public final class Game {
     // Host feedback on clues
     private final List<PlayedClue> played = new ArrayList<>();
     private final Map<Long, String> feedback = new HashMap<>();
+    /** Categories (keywords) the host removed from future games during this game. */
+    private final Set<Long> removedKeywords = new HashSet<>();
 
     public Game(String code, String hostKey, BoardBuilder builder, Supplier<String> tokens, Clock clock) {
         this.code = code;
@@ -212,14 +216,18 @@ public final class Game {
      * appear; accents and case don't matter.
      */
     public synchronized List<Map<String, Object>> searchKeywords(String query) {
-        require(Phase.VOTING);
+        if (phase != Phase.VOTING && phase != Phase.FINAL_VOTING) {
+            throw new GameException("Searching is only for the category votes");
+        }
+        boolean finalVote = phase == Phase.FINAL_VOTING;
         List<String> words = List.of(fold(query).split(" ")).stream().filter(w -> !w.isBlank()).toList();
         if (words.isEmpty()) {
             return List.of();
         }
         Set<Long> inPool = new HashSet<>();
-        pool.forEach(k -> inPool.add(k.id()));
+        (finalVote ? finalOptions : pool).forEach(k -> inPool.add(k.id()));
         return eligible.stream()
+                .filter(k -> !finalVote || !boardKeywordIds.contains(k.id())) // already on a board
                 .filter(k -> {
                     String haystack = fold(k.name() + " " + k.displayTitle());
                     return words.stream().allMatch(haystack::contains);
@@ -300,9 +308,13 @@ public final class Game {
         builder.placeDailyDoubles(jeopardyBoard);
         builder.placeDailyDoubles(doubleJeopardyBoard);
 
-        finalOptions = pool.stream().filter(k -> !chosen.contains(k.id())).toList();
+        boardKeywordIds.clear();
+        boardKeywordIds.addAll(chosen);
+        finalOptions.clear();
+        pool.stream().filter(k -> !chosen.contains(k.id())).forEach(finalOptions::add);
         if (finalOptions.isEmpty()) {
-            throw new GameException("No categories left for Final Jeopardy");
+            // Everything in the pool made the boards: offer anything else that's playable.
+            eligible.stream().filter(k -> !chosen.contains(k.id())).limit(POOL_SIZE).forEach(finalOptions::add);
         }
         phase = Phase.FINAL_VOTING;
     }
@@ -311,18 +323,47 @@ public final class Game {
         touch();
         require(Phase.FINAL_VOTING);
         team(teamId);
-        if (finalOptions.stream().noneMatch(k -> k.id() == keywordId)) {
-            throw new GameException("That keyword isn't a Final Jeopardy option");
+        finalBallots.put(teamId, finalOption(keywordId).id());
+    }
+
+    /**
+     * Any playable keyword that isn't on a board can be the Final category; one found with search
+     * joins the shared list of options.
+     */
+    private KeywordOption finalOption(long keywordId) {
+        Optional<KeywordOption> listed = finalOptions.stream().filter(k -> k.id() == keywordId).findFirst();
+        if (listed.isPresent()) {
+            return listed.get();
         }
-        finalBallots.put(teamId, keywordId);
+        if (boardKeywordIds.contains(keywordId)) {
+            throw new GameException("That category is already on a board");
+        }
+        KeywordOption found = eligible.stream().filter(k -> k.id() == keywordId).findFirst()
+                .orElseThrow(() -> new GameException("That category isn't available"));
+        finalOptions.add(found);
+        return found;
     }
 
     /** Picks the most-voted Final category and starts the Jeopardy round. */
     public synchronized void closeFinalVoting(ClueSource source) {
+        closeFinalVoting(source, null);
+    }
+
+    /**
+     * Starts the Jeopardy round with a Final category: the host's choice if given (typed in and searched
+     * for), otherwise the most-voted option.
+     */
+    public synchronized void closeFinalVoting(ClueSource source, Long hostChoice) {
         touch();
         require(Phase.FINAL_VOTING);
-        List<List<Long>> votes = finalBallots.values().stream().map(List::of).toList();
-        for (Long id : builder.rank(votes, finalOptions)) {
+        List<Long> ranked;
+        if (hostChoice != null) {
+            ranked = List.of(finalOption(hostChoice).id());
+        } else {
+            List<List<Long>> votes = finalBallots.values().stream().map(List::of).toList();
+            ranked = builder.rank(votes, finalOptions);
+        }
+        for (Long id : ranked) {
             Optional<CandidateClue> clue = builder.pickFinalClue(source.cluesForKeyword(id), usedClueIds);
             if (clue.isPresent()) {
                 finalCategory = finalOptions.stream().filter(k -> k.id() == id).findFirst().orElseThrow();
@@ -332,7 +373,8 @@ public final class Game {
             }
         }
         if (finalClue == null) {
-            throw new GameException("No unused clue available for Final Jeopardy");
+            throw new GameException(hostChoice != null ? "That category has no unused clue left; pick another"
+                    : "No unused clue available for Final Jeopardy");
         }
         currentBoard = jeopardyBoard;
         if (controlTeamId == null && !teams.isEmpty()) {
@@ -456,8 +498,9 @@ public final class Game {
         touch();
         require(Phase.CLUE);
         currentCell.markUsed();
-        played.add(new PlayedClue(currentCell.clue(),
-                currentBoard.categories().get(currentCell.column()).keyword().displayTitle(), currentCell.value()));
+        KeywordOption playedKeyword = currentBoard.categories().get(currentCell.column()).keyword();
+        played.add(new PlayedClue(currentCell.clue(), playedKeyword.displayTitle(), currentCell.value(),
+                playedKeyword.id(), playedKeyword.name()));
         resetClueState();
         if (currentBoard.allUsed()) {
             advanceRound();
@@ -492,7 +535,8 @@ public final class Game {
         touch();
         require(Phase.FINAL_WAGER);
         finalEligible.forEach(id -> finalWagers.putIfAbsent(id, 0)); // missing wager counts as $0
-        played.add(new PlayedClue(finalClue, "Final Jeopardy: " + finalCategory.displayTitle(), 0));
+        played.add(new PlayedClue(finalClue, "Final Jeopardy: " + finalCategory.displayTitle(), 0,
+                finalCategory.id(), finalCategory.name()));
         phase = Phase.FINAL_ANSWER;
     }
 
@@ -556,6 +600,17 @@ public final class Game {
         feedback.put(clueId, action);
     }
 
+    /** Records that the host removed a whole category (keyword) used in this game from future games. */
+    public synchronized void recordCategoryRemoval(long keywordId) {
+        touch();
+        boolean inGame = boardKeywordIds.contains(keywordId)
+                || (finalCategory != null && finalCategory.id() == keywordId);
+        if (!inGame) {
+            throw new GameException("That category isn't part of this game");
+        }
+        removedKeywords.add(keywordId);
+    }
+
     private boolean containsClue(long clueId) {
         if (finalClue != null && finalClue.id() == clueId) {
             return true;
@@ -587,7 +642,9 @@ public final class Game {
         eligible = List.of();
         pool.clear();
         ballots.clear();
-        finalOptions = List.of();
+        finalOptions.clear();
+        boardKeywordIds.clear();
+        removedKeywords.clear();
         finalBallots.clear();
         jeopardyBoard = null;
         doubleJeopardyBoard = null;
@@ -684,6 +741,9 @@ public final class Game {
                 m.put("clue", pc.clue().clue());
                 m.put("response", pc.clue().response());
                 m.put("feedback", feedback.get(pc.clue().id()));
+                m.put("keywordId", pc.keywordId());
+                m.put("keyword", pc.keyword());
+                m.put("categoryRemoved", removedKeywords.contains(pc.keywordId()));
                 return m;
             }).toList());
         }
@@ -736,6 +796,10 @@ public final class Game {
         KeywordOption categoryKeyword = currentBoard.categories().get(currentCell.column()).keyword();
         c.put("category", categoryKeyword.displayTitle());
         c.put("keyword", categoryKeyword.name());
+        if (host) {
+            c.put("keywordId", categoryKeyword.id());
+            c.put("categoryRemoved", removedKeywords.contains(categoryKeyword.id()));
+        }
         c.put("dailyDouble", isDailyDouble());
         c.put("dailyDoubleTeamId", dailyDoubleTeamId);
         c.put("wager", dailyDoubleWager);
@@ -772,6 +836,8 @@ public final class Game {
         if (host) {
             f.put("clueId", finalClue.id());
             f.put("feedback", feedback.get(finalClue.id()));
+            f.put("keywordId", finalCategory.id());
+            f.put("categoryRemoved", removedKeywords.contains(finalCategory.id()));
         }
         f.put("revealOrder", revealOrder);
         f.put("spotlightTeamId", spotlightTeamId);

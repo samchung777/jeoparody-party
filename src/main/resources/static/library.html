@@ -23,6 +23,7 @@
            padding: 2px 10px; margin: 3px; font-size: 13px; }
     .tag small { opacity: .7; }
     h2 { color: var(--gold); margin-top: 32px; }
+    .tag button.x { background: none; border: 0; color: #ff8a8a; cursor: pointer; padding: 0 2px; font-size: 13px; }
     footer { padding: 24px; font-size: 12px; opacity: .7; text-align: center; }
     a { color: var(--gold); }
   </style>
@@ -48,6 +49,9 @@
   <div style="margin-top:8px"><button id="wikiBtn">Generate clues</button> <span id="wikiMsg" style="margin-left:12px;opacity:.85"></span></div>
   <table style="margin-top:8px"><thead><tr><th>Topic</th><th>Status</th><th>Wikipedia page</th><th class="n">Clues</th></tr></thead>
     <tbody id="wikiList"><tr><td colspan="4">Loading…</td></tr></tbody></table>
+
+  <h2>Removed categories <small style="font-size:14px;opacity:.7">(hidden from games; clues kept)</small></h2>
+  <div id="removedCats">Loading…</div>
 
   <h2>Flagged clues <small style="font-size:14px;opacity:.7">(from host feedback)</small></h2>
   <div id="flagged">Loading…</div>
@@ -99,9 +103,10 @@
   async function loadKeywords() {
     const kws = await (await fetch('/api/keywords')).json();
     document.getElementById('keywords').innerHTML = kws.length
-      ? kws.map(k => k.title
-          ? `<span class="tag"><b style="color:var(--gold)">${esc(k.title)}</b> <small>${esc(k.name)} · ${k.total}</small></span>`
-          : `<span class="tag">${esc(k.name)} <small>${k.total}</small></span>`).join('')
+      ? kws.map(k => `<span class="tag">${k.title
+            ? `<b style="color:var(--gold)">${esc(k.title)}</b> <small>${esc(k.name)} · ${k.total}</small>`
+            : `${esc(k.name)} <small>${k.total}</small>`}
+          <button class="x" data-remove-kw="${k.id}" data-name="${esc(k.name)}" title="Remove this category from games">✕</button></span>`).join('')
       : 'None yet – waiting for Gemini to tag clues.';
   }
 
@@ -135,6 +140,28 @@
     loadFlagged(); loadKeywords(); loadCategories();
   });
   loadFlagged();
+
+  async function loadRemovedCats() {
+    const cats = await (await fetch('/api/admin/keywords/removed')).json();
+    document.getElementById('removedCats').innerHTML = cats.length
+      ? cats.map(c => `<span class="tag">${esc(c.title || c.name)} <small>${esc(c.name)} · ${c.clueCount} clues${c.note ? ' · ' + esc(c.note) : ''}</small>
+          <button class="x" data-restore-kw="${c.id}" title="Restore">↩ Restore</button></span>`).join('')
+      : 'None removed.';
+  }
+  document.addEventListener('click', async e => {
+    const rm = e.target.closest('[data-remove-kw]');
+    if (rm) {
+      if (!confirm(`Remove the category "${rm.dataset.name}" from future games? Its clues stay available to other categories.`)) return;
+      await fetch(`/api/admin/keywords/${rm.dataset.removeKw}/remove`, { method: 'POST' });
+      loadKeywords(); loadRemovedCats();
+    }
+    const rs = e.target.closest('[data-restore-kw]');
+    if (rs) {
+      await fetch(`/api/admin/keywords/${rs.dataset.restoreKw}/restore`, { method: 'POST' });
+      loadKeywords(); loadRemovedCats();
+    }
+  });
+  loadRemovedCats();
 
   async function loadWiki() {
     const res = await (await fetch('/api/admin/wiki/topics')).json();

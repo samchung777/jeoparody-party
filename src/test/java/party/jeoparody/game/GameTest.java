@@ -573,4 +573,88 @@ class GameTest {
         g.closeVoting(small); // would fail if the unplayed squares were still "used"
         assertEquals(Phase.FINAL_VOTING, g.phase());
     }
+
+    // ------------------------------------------------------------------ Final category search and override
+
+    /** Votes and closes the board vote; returns the pool as it was during the vote. */
+    private List<Long> playToFinalVote() {
+        game.startVoting(source);
+        List<Long> pool = poolIds();
+        game.vote(red.id(), pool.subList(0, 12));
+        game.closeVoting(source);
+        return pool;
+    }
+
+    private Set<Long> finalOptionIds() {
+        Set<Long> ids = new HashSet<>();
+        ((List<Map<String, Object>>) view(Game.Viewer.HOST).get("finalOptions")).forEach(o -> ids.add((Long) o.get("id")));
+        return ids;
+    }
+
+    private String finalKeywordAfterEndingRounds() {
+        game.adjustScore(red.id(), 100);
+        game.endRound();
+        game.endRound();
+        return (String) ((Map<String, Object>) view(Game.Viewer.HOST).get("final")).get("keyword");
+    }
+
+    @Test
+    void finalVoteCanUseAnySearchedCategoryNotOnABoard() {
+        List<Long> pool = playToFinalVote();
+        Set<Long> options = finalOptionIds();
+        long outside = source.keywords.stream().map(KeywordOption::id).filter(id -> !pool.contains(id)).findFirst()
+                .orElseThrow();
+        assertEquals(1, game.searchKeywords("keyword " + outside).size());
+        game.voteFinal(red.id(), outside);
+        game.voteFinal(blue.id(), outside);
+        assertEquals(options.size() + 1, finalOptionIds().size(), "searched option joins the list");
+        game.closeFinalVoting(source);
+        assertEquals("Keyword " + outside, finalKeywordAfterEndingRounds());
+    }
+
+    @Test
+    void boardCategoriesCantBeFinal() {
+        List<Long> pool = playToFinalVote();
+        Set<Long> options = finalOptionIds();
+        long onBoard = pool.stream().filter(id -> !options.contains(id)).findFirst().orElseThrow();
+        assertThrows(GameException.class, () -> game.voteFinal(red.id(), onBoard));
+        assertThrows(GameException.class, () -> game.closeFinalVoting(source, onBoard));
+        assertTrue(game.searchKeywords("keyword " + onBoard).stream().noneMatch(h -> h.get("id").equals(onBoard)));
+        assertThrows(GameException.class, () -> game.voteFinal(red.id(), 999_999L));
+    }
+
+    @Test
+    void hostCanTypeInTheFinalCategory() {
+        List<Long> pool = playToFinalVote();
+        long pick = source.keywords.stream().map(KeywordOption::id).filter(id -> !pool.contains(id)).findFirst()
+                .orElseThrow();
+        game.voteFinal(red.id(), finalOptionIds().iterator().next());
+        game.closeFinalVoting(source, pick); // host override beats the vote
+        assertEquals(Phase.BOARD, game.phase());
+        assertEquals("Keyword " + pick, finalKeywordAfterEndingRounds());
+    }
+
+    // ------------------------------------------------------------------ removing whole categories
+
+    @Test
+    void hostCanRemoveACategoryUsedInThisGame() {
+        playToBoard();
+        int[] cell = findNormalCell();
+        game.selectCell(cell[0], cell[1]);
+        Map<String, Object> clue = (Map<String, Object>) view(Game.Viewer.HOST).get("clue");
+        long keywordId = (Long) clue.get("keywordId");
+        assertEquals(false, clue.get("categoryRemoved"));
+        assertFalse(((Map<String, Object>) view(Game.Viewer.BOARD).get("clue")).containsKey("keywordId"), "host only");
+
+        assertThrows(GameException.class, () -> game.recordCategoryRemoval(999_999L));
+        game.recordCategoryRemoval(keywordId);
+        assertEquals(true, ((Map<String, Object>) view(Game.Viewer.HOST).get("clue")).get("categoryRemoved"));
+
+        game.reveal();
+        game.returnToBoard();
+        game.finish();
+        Map<String, Object> reviewed = ((List<Map<String, Object>>) view(Game.Viewer.HOST).get("played")).get(0);
+        assertEquals(keywordId, reviewed.get("keywordId"));
+        assertEquals(true, reviewed.get("categoryRemoved"));
+    }
 }

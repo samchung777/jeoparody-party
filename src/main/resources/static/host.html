@@ -50,6 +50,12 @@
   </section>
   <div class="stack">
     <section class="panel stack" id="phase"></section>
+    <section class="panel stack hidden" id="finalPicker">
+      <h3 style="margin:0">Or type in the Final Jeopardy category</h3>
+      <p class="muted" style="margin:0">Search every category that isn't on a board, then lock it in (overrides the vote).</p>
+      <input type="search" id="finalSearch" placeholder="e.g. Hamilton, Zelda, New Testament" autocomplete="off">
+      <div id="finalResults" class="vote-list"></div>
+    </section>
     <section class="panel stack hidden" id="feedback">
       <h3 style="margin:0">Flag this clue</h3>
       <p class="muted" style="margin:0">Bad clue or answer? Remove it from future games, or have Gemini rewrite it.</p>
@@ -69,6 +75,11 @@
         <button class="bad" id="fbRemove">Remove from future games</button>
         <button class="secondary" id="fbReword">Reword with Gemini</button>
         <span id="fbStatus" class="gold"></span>
+      </div>
+      <div class="row" style="border-top:1px solid var(--line);padding-top:10px">
+        <button class="bad" id="fbRemoveCategory">Remove whole category</button>
+        <span class="muted" style="font-size:13px">Takes this category out of future games. Its clues stay available to other categories.</span>
+        <span id="fbCategoryStatus" class="gold"></span>
       </div>
     </section>
   </div>
@@ -92,6 +103,12 @@
 
   const conn = Jeo.connect(() => `game=${encodeURIComponent(code)}&role=host&key=${encodeURIComponent(key)}`, {
     onState: s => { state = s; render(); },
+    onMessage: m => {
+      if (m.type === 'searchResults' && m.query === document.getElementById('finalSearch').value.trim()) {
+        finalResults = m.results;
+        renderFinalPicker();
+      }
+    },
     onStatus: up => document.getElementById('conn').classList.toggle('on', up),
     onFatal: msg => { document.getElementById('phase').innerHTML = `<p>${esc(msg)}</p><p><a href="/">Start a new game</a></p>`; }
   });
@@ -120,11 +137,14 @@
 
   function feedbackTarget() {
     const s = state;
-    if (s.clue && s.clue.clueId != null) return { id: s.clue.clueId, text: s.clue.text, response: s.clue.response, feedback: s.clue.feedback };
-    if (s.final && s.final.clueId != null && ['FINAL_ANSWER', 'FINAL_REVEAL'].includes(s.phase)) return { id: s.final.clueId, text: s.final.text, response: s.final.response, feedback: s.final.feedback };
+    if (s.clue && s.clue.clueId != null) return { id: s.clue.clueId, text: s.clue.text, response: s.clue.response, feedback: s.clue.feedback,
+      keywordId: s.clue.keywordId, keyword: s.clue.keyword, categoryRemoved: s.clue.categoryRemoved };
+    if (s.final && s.final.clueId != null && ['FINAL_ANSWER', 'FINAL_REVEAL'].includes(s.phase)) return { id: s.final.clueId, text: s.final.text, response: s.final.response, feedback: s.final.feedback,
+      keywordId: s.final.keywordId, keyword: s.final.keyword, categoryRemoved: s.final.categoryRemoved };
     if (s.phase === 'GAME_OVER' && reviewClueId != null) {
       const p = (s.played || []).find(x => x.clueId === reviewClueId);
-      if (p) return { id: p.clueId, text: p.clue, response: p.response, feedback: p.feedback };
+      if (p) return { id: p.clueId, text: p.clue, response: p.response, feedback: p.feedback,
+        keywordId: p.keywordId, keyword: p.keyword, categoryRemoved: p.categoryRemoved };
     }
     return null;
   }
@@ -143,6 +163,49 @@
     document.getElementById('fbStatus').textContent = done;
     document.getElementById('fbRemove').disabled = !!t.feedback;
     document.getElementById('fbReword').disabled = !!t.feedback;
+    const catBtn = document.getElementById('fbRemoveCategory');
+    catBtn.textContent = `Remove whole category "${t.keyword || ''}"`;
+    catBtn.disabled = !!t.categoryRemoved || t.keywordId == null;
+    document.getElementById('fbCategoryStatus').textContent = t.categoryRemoved ? 'Category removed ✓' : '';
+    panelKeywordId = t.keywordId;
+    panelKeyword = t.keyword;
+  }
+
+  let panelKeywordId = null;
+  let panelKeyword = null;
+  document.getElementById('fbRemoveCategory').onclick = () => {
+    if (panelKeywordId == null) return;
+    if (!confirm(`Remove the whole category "${panelKeyword}" from future games? You can restore it from the trivia library.`)) return;
+    send('removeCategory', { keywordId: panelKeywordId, note: document.getElementById('fbNote').value });
+  };
+
+  // ---- Final Jeopardy picker (kept outside #phase so typing isn't wiped by state updates)
+  let finalResults = [];
+  let finalTimer;
+  document.getElementById('finalSearch').addEventListener('input', () => {
+    clearTimeout(finalTimer);
+    const q = document.getElementById('finalSearch').value.trim();
+    if (!q) { finalResults = []; renderFinalPicker(); return; }
+    finalTimer = setTimeout(() => conn.send('search', { query: q }, true), 250);
+  });
+  document.getElementById('finalResults').addEventListener('click', e => {
+    const b = e.target.closest('[data-final]');
+    if (!b) return;
+    if (!confirm(`Use "${b.dataset.title}" as the Final Jeopardy category and start the game?`)) return;
+    send('setFinalCategory', { keywordId: Number(b.dataset.final) });
+  });
+  function renderFinalPicker() {
+    const visible = state && state.phase === 'FINAL_VOTING';
+    document.getElementById('finalPicker').classList.toggle('hidden', !visible);
+    if (!visible) {
+      document.getElementById('finalSearch').value = '';
+      finalResults = [];
+    }
+    const q = document.getElementById('finalSearch').value.trim();
+    document.getElementById('finalResults').innerHTML = finalResults.length
+      ? finalResults.map(o => `<div class="chip"><span>${esc(o.title)}</span><small>${esc(o.keyword)}</small>
+          <button class="small" data-final="${o.id}" data-title="${esc(o.title)}">Use as Final</button></div>`).join('')
+      : (q ? '<p class="muted">No categories match that.</p>' : '');
   }
 
   function sendFeedback(feedbackAction) {
@@ -167,6 +230,7 @@
   function render() {
     renderTeams();
     renderFeedback();
+    renderFinalPicker();
     const views = {
       LOBBY: lobby, VOTING: voting, FINAL_VOTING: voting, BOARD: board, DAILY_DOUBLE_WAGER: dailyDouble,
       CLUE: clue, FINAL_WAGER: finalWager, FINAL_ANSWER: finalAnswer, FINAL_REVEAL: finalReveal, GAME_OVER: gameOver

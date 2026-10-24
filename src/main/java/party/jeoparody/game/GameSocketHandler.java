@@ -129,7 +129,7 @@ public class GameSocketHandler extends TextWebSocketHandler {
         String action = msg.path("action").asText("");
         try {
             boolean changed = switch (c.viewer) {
-                case HOST -> hostAction(game, action, msg);
+                case HOST -> hostAction(game, action, msg, c);
                 case PLAYER -> playerAction(game, c, action, msg);
                 case BOARD -> false;
             };
@@ -146,9 +146,26 @@ public class GameSocketHandler extends TextWebSocketHandler {
         }
     }
 
-    private boolean hostAction(Game game, String action, JsonNode msg) {
+    private boolean hostAction(Game game, String action, JsonNode msg, Connection c) {
         switch (action) {
             case "ping" -> { return false; }
+            case "search" -> {
+                // The host types in a Final Jeopardy category: results go to the host screen only.
+                String query = msg.path("query").asText("");
+                send(c.session, Map.of("type", "searchResults", "query", query, "results", game.searchKeywords(query)));
+                return false;
+            }
+            case "setFinalCategory" -> game.closeFinalVoting(games.clueSource(), msg.path("keywordId").asLong(-1));
+            case "removeCategory" -> {
+                long keywordId = msg.path("keywordId").asLong(-1);
+                game.recordCategoryRemoval(keywordId); // validates the category is in this game
+                try {
+                    feedback.removeKeyword(keywordId, msg.path("note").asText(null), game.code());
+                } catch (RuntimeException e) {
+                    log.warn("Could not remove category {}: {}", keywordId, e.getMessage());
+                    throw new GameException("Couldn't remove that category – try again");
+                }
+            }
             case "startVoting" -> game.startVoting(games.clueSource());
             case "closeVoting" -> game.closeVoting(games.clueSource());
             case "closeFinalVoting" -> game.closeFinalVoting(games.clueSource());
