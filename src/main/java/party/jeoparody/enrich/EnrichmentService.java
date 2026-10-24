@@ -182,7 +182,7 @@ public class EnrichmentService {
     }
 
     /** Exponential back-off: 15s, 30s, 60s, 120s, then 5 minutes. */
-    static long backoffMillis(int failures) {
+    public static long backoffMillis(int failures) {
         return Math.min(MAX_BACKOFF_MS, FIRST_BACKOFF_MS << Math.min(failures - 1, 10));
     }
 

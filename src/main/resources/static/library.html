@@ -35,6 +35,16 @@
     <span id="enrich" style="margin-left:12px;opacity:.85"></span></div>
   <h2>Keywords ready for the board <small style="font-size:14px;opacity:.7">(5+ clues)</small></h2>
   <div id="keywords">Loading…</div>
+  <h2>Add trivia from Wikipedia</h2>
+  <p style="opacity:.85;margin-top:0">Each topic becomes its own category: Gemini writes ~24 clues from the Wikipedia article,
+    and only clues backed by a sentence in the article are kept. One topic per line or comma separated.
+    For ambiguous names, name the page: <code>Harvest Moon = Harvest Moon (video game series)</code></p>
+  <textarea id="wikiTopics" rows="3" style="width:100%;font:inherit;padding:8px;border-radius:6px"
+            placeholder="Fire Emblem, Hamilton (musical), Expedition 33 = Clair Obscur: Expedition 33"></textarea>
+  <div style="margin-top:8px"><button id="wikiBtn">Generate clues</button> <span id="wikiMsg" style="margin-left:12px;opacity:.85"></span></div>
+  <table style="margin-top:8px"><thead><tr><th>Topic</th><th>Status</th><th>Wikipedia page</th><th class="n">Clues</th></tr></thead>
+    <tbody id="wikiList"><tr><td colspan="4">Loading…</td></tr></tbody></table>
+
   <h2>Flagged clues <small style="font-size:14px;opacity:.7">(from host feedback)</small></h2>
   <div id="flagged">Loading…</div>
   <h2>Categories</h2>
@@ -121,6 +131,31 @@
     loadFlagged(); loadKeywords(); loadCategories();
   });
   loadFlagged();
+
+  async function loadWiki() {
+    const res = await (await fetch('/api/admin/wiki/topics')).json();
+    const body = document.getElementById('wikiList');
+    if (!res.enabled) document.getElementById('wikiMsg').textContent = 'Wikipedia clues are turned off (needs Gemini).';
+    const icon = { queued: '⏳ queued', done: '✅ done', failed: '⚠️ failed', not_found: '❓ not found' };
+    body.innerHTML = res.topics.length ? res.topics.map(t => `<tr>
+        <td>${esc(t.topic)}</td>
+        <td title="${esc(t.error || '')}">${icon[t.status] || esc(t.status)}${t.error ? `<div class="orig">${esc(t.error)}</div>` : ''}</td>
+        <td>${t.pageUrl ? `<a href="${esc(t.pageUrl)}" target="_blank" rel="noopener">${esc(t.pageTitle)}</a>` : ''}</td>
+        <td class="n">${t.status === 'done' ? `${t.cluesAdded}${t.cluesGenerated !== t.cluesAdded ? ' / ' + t.cluesGenerated : ''}` : ''}</td>
+      </tr>`).join('') : '<tr><td colspan="4">No topics yet.</td></tr>';
+    if (res.topics.some(t => t.status === 'queued')) setTimeout(loadWiki, 5000);
+  }
+  document.getElementById('wikiBtn').addEventListener('click', async () => {
+    const topics = document.getElementById('wikiTopics').value;
+    if (!topics.trim()) return;
+    const res = await fetch('/api/admin/wiki/topics', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topics }) });
+    const data = await res.json();
+    document.getElementById('wikiMsg').textContent = res.ok ? `Queued ${data.queued.length} topic(s).` : data.message;
+    if (res.ok) document.getElementById('wikiTopics').value = '';
+    loadWiki();
+  });
+  loadWiki();
 
   document.getElementById('enrichBtn').addEventListener('click', async () => {
     await fetch('/api/admin/enrich', { method: 'POST' });

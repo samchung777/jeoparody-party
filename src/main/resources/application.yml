@@ -37,3 +37,62 @@ trivia:
     model: ${GEMINI_MODEL:gemini-3.5-flash}
     batch-size: 20
     max-attempts: 3
+  wiki:
+    # Writes specific categories ("Fire Emblem", "Hamilton") from Wikipedia articles with Gemini.
+    # Only clues whose quoted evidence appears in the article are kept.
+    enabled: ${TRIVIA_WIKI_ENABLED:true}
+    api-url: https://en.wikipedia.org/w/api.php
+    seed-on-startup: ${TRIVIA_WIKI_SEED:true}   # queue the starter topics once, on a database with no topics
+    clues-per-topic: 24
+    max-article-chars: 60000
+    # "Keyword = Exact Wikipedia page" picks the right article for ambiguous names.
+    starter-topics:
+      # Video games
+      - Final Fantasy
+      - "Expedition 33 = Clair Obscur: Expedition 33"
+      - Harvest Moon = Harvest Moon (video game series)
+      - Fire Emblem
+      - The Legend of Zelda
+      - Pokemon = Pokémon
+      - Super Mario
+      - Kingdom Hearts
+      - Persona = Persona (series)
+      - Metal Gear
+      - Halo = Halo (franchise)
+      - The Elder Scrolls
+      - Animal Crossing
+      - Street Fighter
+      - Sonic the Hedgehog
+      - Minecraft
+      - Stardew Valley
+      - Mass Effect
+      # Musicals
+      - Hamilton = Hamilton (musical)
+      - The Outsiders = The Outsiders (musical)
+      - Phantom of the Opera = The Phantom of the Opera (1986 musical)
+      - Les Miserables = Les Misérables (musical)
+      - Wicked = Wicked (musical)
+      - Rent = Rent (musical)
+      - Cats = Cats (musical)
+      - Dear Evan Hansen
+      - Hadestown
+      - Six = Six (musical)
+      # Film and TV
+      - Star Wars
+      - Harry Potter
+      - Marvel Cinematic Universe
+      - The Simpsons
+      - Friends
+      - The Office = The Office (American TV series)
+      - Breaking Bad
+      - Stranger Things
+      - Pixar
+      - Studio Ghibli
+      - Back to the Future
+      # Music
+      - The Beatles
+      - Taylor Swift
+      - Queen = Queen (band)
+      - Michael Jackson
+      - Beyonce = Beyoncé
+      - Nirvana = Nirvana (band)

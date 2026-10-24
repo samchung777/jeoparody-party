@@ -10,3 +10,6 @@ trivia:
   import-on-startup: false     # never call Open Trivia DB from tests
   enrichment:
     enabled: false             # never call Gemini from tests
+  wiki:
+    enabled: false             # never call Wikipedia from tests
+    seed-on-startup: false
