@@ -3,9 +3,11 @@ package party.jeoparody.wiki;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -43,12 +45,43 @@ public class WikiRepository {
                 (rs, i) -> new QueuedTopic(rs.getLong("id"), rs.getString("topic"))).stream().findFirst();
     }
 
-    public void markDone(long id, WikiPage page, int generated, int added) {
+    public void markDone(long id, WikiPage page, int generated, int added, int promptVersion) {
         jdbc.update("""
                 UPDATE wiki_topic SET status = 'done', page_title = ?, page_url = ?, clues_generated = ?,
-                                      clues_added = ?, error = NULL
+                                      clues_added = clues_added + ?, error = NULL, prompt_version = ?
                 WHERE id = ?
-                """, page.title(), page.url(), generated, added, id);
+                """, page.title(), page.url(), generated, added, promptVersion, id);
+    }
+
+    /** Topics finished with an older prompt go back in the queue (their good clues are kept). */
+    public int requeueOutdated(int promptVersion) {
+        return jdbc.update("UPDATE wiki_topic SET status = 'queued' WHERE status = 'done' AND prompt_version < ?",
+                promptVersion);
+    }
+
+    /** Answer keys of live clues already written from this page, so regeneration doesn't repeat them. */
+    public Set<String> existingAnswers(String pageUrl) {
+        Set<String> keys = new HashSet<>();
+        jdbc.queryForList("SELECT answer FROM clue WHERE source_url = ? AND retired_at IS NULL", String.class, pageUrl)
+                .forEach(a -> keys.add(WikiText.answerKey(a)));
+        keys.remove("");
+        return keys;
+    }
+
+    public record TopicRow(long id, String topic) {
+    }
+
+    public List<TopicRow> allTopics() {
+        return jdbc.query("SELECT id, topic FROM wiki_topic", (rs, i) -> new TopicRow(rs.getLong("id"), rs.getString("topic")));
+    }
+
+    /** Updates a topic's text (e.g. a starter topic gained groups). Returns false if that text already exists. */
+    public boolean rename(long id, String topic) {
+        try {
+            return jdbc.update("UPDATE wiki_topic SET topic = ? WHERE id = ?", topic, id) == 1;
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            return false;
+        }
     }
 
     public void markNotFound(long id) {
@@ -87,12 +120,13 @@ public class WikiRepository {
      * Inserts a generated clue (raw fields only; the caller then saves wording and keywords).
      * Returns empty if an identical clue already exists.
      */
-    public OptionalLong insertClue(long categoryId, GeneratedClue c, String sourceUrl) {
+    public OptionalLong insertClue(long categoryId, GeneratedClue c, String sourceUrl, int reviewVersion) {
         KeyHolder keys = new GeneratedKeyHolder();
         int rows = jdbc.update(con -> {
             PreparedStatement ps = con.prepareStatement("""
-                    INSERT IGNORE INTO clue (category_id, difficulty, question, answer, question_hash, source_url, source_quote)
-                    VALUES (?, ?, ?, ?, SHA2(LOWER(TRIM(?)), 256), ?, ?)
+                    INSERT IGNORE INTO clue (category_id, difficulty, question, answer, question_hash, source_url,
+                                             source_quote, review_version)
+                    VALUES (?, ?, ?, ?, SHA2(LOWER(TRIM(?)), 256), ?, ?, ?)
                     """, Statement.RETURN_GENERATED_KEYS);
             ps.setLong(1, categoryId);
             ps.setString(2, c.difficulty());
@@ -101,6 +135,7 @@ public class WikiRepository {
             ps.setString(5, c.clue());
             ps.setString(6, truncate(sourceUrl, 500));
             ps.setString(7, c.quote());
+            ps.setInt(8, reviewVersion); // written under the story-focused rules: no need to review again
             return ps;
         }, keys);
         if (rows != 1 || keys.getKey() == null) {

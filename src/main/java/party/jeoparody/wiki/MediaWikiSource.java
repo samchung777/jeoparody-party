@@ -41,17 +41,44 @@ public class MediaWikiSource implements WikiSource {
 
     @Override
     public Optional<WikiPage> fetch(String pageQuery) throws IOException, InterruptedException {
-        Optional<WikiPage> exact = article(pageQuery);
-        if (exact.isPresent()) {
-            return exact;
-        }
-        for (String title : search(pageQuery)) {
-            Optional<WikiPage> page = article(title);
-            if (page.isPresent()) {
-                return page;
+        Optional<WikiPage> main = article(pageQuery);
+        if (main.isEmpty()) {
+            for (String title : search(pageQuery)) {
+                if (!WikiText.titleMatchesQuery(title, pageQuery)) {
+                    continue; // a search hit that isn't what was asked for
+                }
+                main = article(title);
+                if (main.isPresent()) {
+                    break;
+                }
             }
         }
-        return Optional.empty();
+        if (main.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(withCharacters(main.get()));
+    }
+
+    /**
+     * Many franchises have a "List of X characters" article: the best possible material for clues about
+     * characters. If it exists, append it (the main article keeps ~60% of the length budget).
+     */
+    private WikiPage withCharacters(WikiPage page) throws IOException, InterruptedException {
+        String base = page.title().replaceAll("\\s*\\([^)]*\\)\\s*$", "");
+        Optional<WikiPage> characters = article("List of " + base + " characters");
+        if (characters.isEmpty()) {
+            return page;
+        }
+        return combine(page, characters.get(), props.maxArticleChars());
+    }
+
+    /** Main article first, then the character list, within maxChars. Package-private for tests. */
+    static WikiPage combine(WikiPage main, WikiPage characters, int maxChars) {
+        String mainText = WikiText.truncateAtSentence(main.text(), maxChars * 6 / 10);
+        String header = "\n\nCharacters (from \"" + characters.title() + "\"):\n";
+        int remaining = Math.max(0, maxChars - mainText.length() - header.length());
+        String text = remaining < 500 ? mainText : mainText + header + WikiText.truncateAtSentence(characters.text(), remaining);
+        return new WikiPage(main.pageId(), main.title(), main.url(), text);
     }
 
     /** The article with this exact title (following redirects), unless missing or a disambiguation page. */
@@ -76,7 +103,7 @@ public class MediaWikiSource implements WikiSource {
                 || page.path("pageprops").has("disambiguation")) {
             return Optional.empty();
         }
-        String text = WikiText.cleanArticle(page.path("extract").asText(""), maxChars);
+        String text = WikiText.cleanArticle(page.path("extract").asText(""), maxChars, true);
         if (text.length() < 500) {
             return Optional.empty(); // stubs don't have enough facts for a category
         }

@@ -30,6 +30,17 @@ class MediaWikiSourceTest {
     }
 
     @Test
+    void characterListsAreAppendedWithinTheBudget() {
+        WikiPage main = new WikiPage(1, "Naruto", "https://en.wikipedia.org/wiki/Naruto", "Naruto Uzumaki is a ninja. ".repeat(100));
+        WikiPage cast = new WikiPage(2, "List of Naruto characters", "u", "Sasuke Uchiha is his rival. ".repeat(100));
+        WikiPage combined = MediaWikiSource.combine(main, cast, 3000);
+        assertTrue(combined.text().length() <= 3000);
+        assertTrue(combined.text().contains("Characters (from \"List of Naruto characters\"):"));
+        assertTrue(combined.text().contains("Sasuke Uchiha"));
+        assertEquals("https://en.wikipedia.org/wiki/Naruto", combined.url(), "the main article stays the source");
+    }
+
+    @Test
     void skipsMissingDisambiguationAndStubPages() throws Exception {
         assertTrue(parse("{\"title\":\"Nope\",\"missing\":true}").isEmpty());
         assertTrue(parse("""

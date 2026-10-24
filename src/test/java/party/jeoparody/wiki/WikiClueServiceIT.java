@@ -2,8 +2,11 @@ package party.jeoparody.wiki;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
@@ -46,7 +49,7 @@ class WikiClueServiceIT extends IntegrationTest {
     void topicsBecomeAPlayableCategory() throws Exception {
         when(source.fetch("Hamilton (musical)")).thenReturn(Optional.of(hamilton));
         when(source.fetch("Nonexistent Thing")).thenReturn(Optional.empty());
-        when(generator.generate(eq("Hamilton"), eq(hamilton), anyInt())).thenReturn(List.of(
+        when(generator.generate(any(), eq(hamilton), anyInt(), anySet())).thenReturn(List.of(
                 clue(1, "easy"), clue(2, "easy"), clue(3, "medium"), clue(4, "hard"), clue(5, "hard"), clue(6, "hard")));
 
         assertEquals(List.of("Hamilton (musical)", "Nonexistent Thing"),
@@ -77,7 +80,7 @@ class WikiClueServiceIT extends IntegrationTest {
     @Test
     void identicalCluesAreNotStoredTwice() throws Exception {
         when(source.fetch("Hamilton (musical)")).thenReturn(Optional.of(hamilton));
-        when(generator.generate(eq("Hamilton"), eq(hamilton), anyInt())).thenReturn(List.of(clue(1, "easy")));
+        when(generator.generate(any(), eq(hamilton), anyInt(), anySet())).thenReturn(List.of(clue(1, "easy")));
         service.queue("Hamilton (musical)");
         service.processQueue();
 
@@ -85,7 +88,7 @@ class WikiClueServiceIT extends IntegrationTest {
         service.queue("Hamilton (musical)");
         service.processQueue();
 
-        assertEquals(0, byTopic().get("Hamilton (musical)").cluesAdded());
+        assertEquals(1, byTopic().get("Hamilton (musical)").cluesAdded(), "the re-run added nothing new");
         assertEquals(1, TestData.count(jdbc, "SELECT COUNT(*) FROM clue WHERE source_url IS NOT NULL"));
     }
 
@@ -105,7 +108,7 @@ class WikiClueServiceIT extends IntegrationTest {
     @Test
     void doneTopicsAreNotQueuedAgain() throws Exception {
         when(source.fetch("Hamilton (musical)")).thenReturn(Optional.of(hamilton));
-        when(generator.generate(eq("Hamilton"), eq(hamilton), anyInt())).thenReturn(List.of());
+        when(generator.generate(any(), eq(hamilton), anyInt(), anySet())).thenReturn(List.of());
         service.queue("Hamilton (musical)");
         service.processQueue();
         service.queue("Hamilton (musical)");
@@ -114,5 +117,30 @@ class WikiClueServiceIT extends IntegrationTest {
 
     private Map<String, WikiTopic> byTopic() {
         return repository.list(100).stream().collect(java.util.stream.Collectors.toMap(WikiTopic::topic, t -> t));
+    }
+
+    @Test
+    void groupsBecomeExtraKeywordsAndOutdatedTopicsAreRegeneratedWithoutRepeats() throws Exception {
+        when(source.fetch("Hamilton (musical)")).thenReturn(Optional.of(hamilton));
+        when(generator.generate(any(), eq(hamilton), anyInt(), anySet())).thenAnswer(inv -> {
+            WikiText.TopicSpec spec = inv.getArgument(0);
+            return List.of(new GeneratedClue("easy", "Group clue", "Who is Eliza?", "Eliza", "q",
+                    party.jeoparody.wiki.WikiCluePrompt.keywords(new com.fasterxml.jackson.databind.ObjectMapper()
+                            .createArrayNode(), spec, "eliza")));
+        });
+        service.queue("Hamilton = Hamilton (musical) [Broadway Musicals] {6: the Schuyler sisters}");
+        service.processQueue();
+
+        assertEquals(List.of("Broadway Musicals", "Hamilton"), jdbc.queryForList("""
+                SELECT k.name FROM keyword k JOIN clue_keyword ck ON ck.keyword_id = k.id
+                JOIN clue cl ON cl.id = ck.clue_id WHERE cl.question = 'Group clue' ORDER BY k.name""", String.class));
+        verify(generator).generate(any(), eq(hamilton), eq(6), eq(java.util.Set.of()));
+
+        // Pretend it was written with the old prompt: it is re-queued and regenerated, excluding "Eliza"
+        jdbc.update("UPDATE wiki_topic SET prompt_version = 1");
+        assertEquals(1, repository.requeueOutdated(WikiCluePrompt.VERSION));
+        service.processQueue();
+        verify(generator).generate(any(), eq(hamilton), eq(6), eq(java.util.Set.of("eliza")));
+        assertEquals(WikiCluePrompt.VERSION, jdbc.queryForObject("SELECT prompt_version FROM wiki_topic", Integer.class));
     }
 }

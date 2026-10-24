@@ -16,6 +16,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PreDestroy;
+import party.jeoparody.review.ClueReviewService;
 
 /**
  * Background job that sends un-enriched clues to Gemini in batches until none are left.
@@ -35,6 +36,7 @@ public class EnrichmentService {
 
     private final ClueEnricher enricher;
     private final CategoryTitler titler;
+    private final ClueReviewService review;
     private final EnrichmentRepository repository;
     private final EnrichmentProperties props;
     private final AtomicBoolean queued = new AtomicBoolean(false);
@@ -46,7 +48,8 @@ public class EnrichmentService {
     });
 
     public EnrichmentService(ClueEnricher enricher, CategoryTitler titler, EnrichmentRepository repository,
-            EnrichmentProperties props) {
+            EnrichmentProperties props, ClueReviewService review) {
+        this.review = review;
         this.enricher = enricher;
         this.titler = titler;
         this.repository = repository;
@@ -87,6 +90,7 @@ public class EnrichmentService {
             log.info("Removed {} keywords no longer used by any clue", removed);
         }
         titleKeywords();
+        review.requestRun(); // newly converted clues get the behind-the-scenes check
     }
 
     /** Phase 1: Jeopardy wording + keywords for clues not yet at the current prompt version. */

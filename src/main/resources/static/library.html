@@ -36,11 +36,15 @@
   <h2>Keywords ready for the board <small style="font-size:14px;opacity:.7">(5+ clues)</small></h2>
   <div id="keywords">Loading…</div>
   <h2>Add trivia from Wikipedia</h2>
-  <p style="opacity:.85;margin-top:0">Each topic becomes its own category: Gemini writes ~24 clues from the Wikipedia article,
-    and only clues backed by a sentence in the article are kept. One topic per line or comma separated.
-    For ambiguous names, name the page: <code>Harvest Moon = Harvest Moon (video game series)</code></p>
+  <p style="opacity:.85;margin-top:0">Each topic becomes its own category: Gemini writes ~24 clues about the story,
+    characters and cast from the Wikipedia article (behind-the-scenes sections are skipped), and only clues backed by a
+    sentence in the article are kept. One topic per line or comma separated. Optional extras:
+    <code>Keyword = Exact page</code> for ambiguous names, <code>[Group, Group]</code> to add the clues to broader
+    categories, <code>{10: note}</code> to steer the writer. Example:
+    <code>Harvest Moon = Harvest Moon (video game series) [Video Games]</code></p>
+  <p id="reviewStatus" style="opacity:.85"></p>
   <textarea id="wikiTopics" rows="3" style="width:100%;font:inherit;padding:8px;border-radius:6px"
-            placeholder="Fire Emblem, Hamilton (musical), Expedition 33 = Clair Obscur: Expedition 33"></textarea>
+            placeholder="Fire Emblem [Video Games], Hamilton (musical), Naruto [Shounen Anime]"></textarea>
   <div style="margin-top:8px"><button id="wikiBtn">Generate clues</button> <span id="wikiMsg" style="margin-left:12px;opacity:.85"></span></div>
   <table style="margin-top:8px"><thead><tr><th>Topic</th><th>Status</th><th>Wikipedia page</th><th class="n">Clues</th></tr></thead>
     <tbody id="wikiList"><tr><td colspan="4">Loading…</td></tr></tbody></table>
@@ -154,6 +158,15 @@
     document.getElementById('wikiMsg').textContent = res.ok ? `Queued ${data.queued.length} topic(s).` : data.message;
     if (res.ok) document.getElementById('wikiTopics').value = '';
     loadWiki();
+
+  async function loadReview() {
+    const r = await (await fetch('/api/admin/review')).json();
+    document.getElementById('reviewStatus').textContent = r.enabled
+      ? `Behind-the-scenes check: ${r.pending} clues waiting, ${r.retired} retired so far (see Flagged clues to restore any).`
+      : '';
+    if (r.pending > 0) setTimeout(loadReview, 10000);
+  }
+  loadReview();
   });
   loadWiki();
 

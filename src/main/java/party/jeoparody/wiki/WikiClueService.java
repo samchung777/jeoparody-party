@@ -2,8 +2,11 @@ package party.jeoparody.wiki;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -23,6 +26,7 @@ import party.jeoparody.enrich.EnrichmentProperties;
 import party.jeoparody.enrich.EnrichmentRepository;
 import party.jeoparody.enrich.EnrichmentService;
 import party.jeoparody.enrich.TransientEnrichmentException;
+import party.jeoparody.review.ReviewPrompt;
 import party.jeoparody.trivia.TriviaRepository;
 
 /**
@@ -70,17 +74,48 @@ public class WikiClueService {
         return props.enabled() && geminiProps.enabled();
     }
 
-    /** First start: queue the starter topics. Every start: resume anything still queued. */
+    /**
+     * On startup: sync the starter topic list (new topics are queued, changed ones updated), re-queue topics
+     * written with an older prompt, and resume anything still queued.
+     */
     @EventListener(ApplicationReadyEvent.class)
     public void onStartup() {
         if (!enabled()) {
             return;
         }
-        if (props.seedOnStartup() && repository.countTopics() == 0 && !props.starterTopics().isEmpty()) {
-            log.info("Queuing {} starter Wikipedia topics", props.starterTopics().size());
-            props.starterTopics().forEach(repository::queue);
+        if (props.seedOnStartup()) {
+            syncStarterTopics();
+        }
+        int requeued = repository.requeueOutdated(WikiCluePrompt.VERSION);
+        if (requeued > 0) {
+            log.info("Re-queued {} Wikipedia topics written with an older prompt", requeued);
         }
         requestRun();
+    }
+
+    /** Matches starter topics to existing rows by page, so edits (e.g. added groups) update in place. */
+    void syncStarterTopics() {
+        Map<String, Long> byPage = new HashMap<>();
+        for (WikiRepository.TopicRow row : repository.allTopics()) {
+            byPage.put(pageKey(row.topic()), row.id());
+        }
+        int added = 0;
+        for (String starter : props.starterTopics()) {
+            Long existing = byPage.get(pageKey(starter));
+            if (existing == null) {
+                repository.queue(starter);
+                added++;
+            } else {
+                repository.rename(existing, starter);
+            }
+        }
+        if (added > 0) {
+            log.info("Queued {} new starter Wikipedia topics", added);
+        }
+    }
+
+    private static String pageKey(String topic) {
+        return WikiText.parseTopic(topic).pageQuery().toLowerCase(Locale.ROOT);
     }
 
     /** Accepts "a, b" or one topic per line. Returns the cleaned topics that were queued. */
@@ -133,17 +168,19 @@ public class WikiClueService {
                 repository.markNotFound(topic.id());
                 return;
             }
-            List<GeneratedClue> clues = generateWithRetry(spec.keyword(), page.get());
+            Set<String> existing = repository.existingAnswers(page.get().url());
+            int count = spec.count() != null ? spec.count() : props.cluesPerTopic();
+            List<GeneratedClue> clues = generateWithRetry(spec, page.get(), count, existing);
             long categoryId = trivia.upsertCategory(SOURCE, (int) page.get().pageId(), page.get().title());
             int added = 0;
             for (GeneratedClue c : clues) {
-                OptionalLong id = repository.insertClue(categoryId, c, page.get().url());
+                OptionalLong id = repository.insertClue(categoryId, c, page.get().url(), ReviewPrompt.VERSION);
                 if (id.isPresent()) {
                     enrichmentRepository.save(new EnrichedClue(id.getAsLong(), c.clue(), c.response(), c.keywords()));
                     added++;
                 }
             }
-            repository.markDone(topic.id(), page.get(), clues.size(), added);
+            repository.markDone(topic.id(), page.get(), clues.size(), added, WikiCluePrompt.VERSION);
             log.info("Wiki topic '{}' ({}): {} verified clues, {} new", topic.topic(), page.get().title(),
                     clues.size(), added);
         } catch (InterruptedException e) {
@@ -154,10 +191,12 @@ public class WikiClueService {
         }
     }
 
-    private List<GeneratedClue> generateWithRetry(String keyword, WikiPage page) throws IOException, InterruptedException {
+    private List<GeneratedClue> generateWithRetry(WikiText.TopicSpec spec, WikiPage page, int count,
+            Set<String> existing) throws IOException, InterruptedException {
+        String keyword = spec.keyword();
         for (int attempt = 1; ; attempt++) {
             try {
-                return generator.generate(keyword, page, props.cluesPerTopic());
+                return generator.generate(spec, page, count, existing);
             } catch (TransientEnrichmentException e) {
                 if (attempt >= MAX_ATTEMPTS) {
                     throw e;

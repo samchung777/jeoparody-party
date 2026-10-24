@@ -45,54 +45,196 @@ trivia:
     seed-on-startup: ${TRIVIA_WIKI_SEED:true}   # queue the starter topics once, on a database with no topics
     clues-per-topic: 24
     max-article-chars: 60000
-    # "Keyword = Exact Wikipedia page" picks the right article for ambiguous names.
+    # Topic syntax:  Keyword = Exact Wikipedia page [Group Keyword, ...] {count: note for the writer}
+    #   only the keyword is required; groups also add the clues to broader categories ("Shounen Anime").
+    # Starter topics are synced on every start: new lines are queued, edited lines update in place.
     starter-topics:
       # Video games
-      - Final Fantasy
-      - "Expedition 33 = Clair Obscur: Expedition 33"
-      - Harvest Moon = Harvest Moon (video game series)
-      - Fire Emblem
-      - The Legend of Zelda
-      - Pokemon = Pokémon
-      - Super Mario
-      - Kingdom Hearts
-      - Persona = Persona (series)
-      - Metal Gear
-      - Halo = Halo (franchise)
-      - The Elder Scrolls
-      - Animal Crossing
-      - Street Fighter
-      - Sonic the Hedgehog
-      - Minecraft
-      - Stardew Valley
-      - Mass Effect
-      # Musicals
-      - Hamilton = Hamilton (musical)
-      - The Outsiders = The Outsiders (musical)
-      - Phantom of the Opera = The Phantom of the Opera (1986 musical)
-      - Les Miserables = Les Misérables (musical)
-      - Wicked = Wicked (musical)
-      - Rent = Rent (musical)
-      - Cats = Cats (musical)
-      - Dear Evan Hansen
-      - Hadestown
-      - Six = Six (musical)
+      - "Final Fantasy [Video Games]"
+      - "Harvest Moon = Harvest Moon (video game series) [Video Games]"
+      - "Fire Emblem [Video Games]"
+      - "The Legend of Zelda [Video Games]"
+      - "Pokemon = Pokémon [Video Games]"
+      - "Super Mario [Video Games]"
+      - "Kingdom Hearts [Video Games]"
+      - "Persona = Persona (series) [Video Games]"
+      - "Metal Gear [Video Games]"
+      - "Halo = Halo (franchise) [Video Games]"
+      - "The Elder Scrolls [Video Games]"
+      - "Animal Crossing [Video Games]"
+      - "Street Fighter [Video Games]"
+      - "Sonic the Hedgehog [Video Games]"
+      - "Minecraft [Video Games]"
+      - "Stardew Valley [Video Games]"
+      - "Mass Effect [Video Games]"
+      # Video games of the last 10 years
+      - "Expedition 33 = Clair Obscur: Expedition 33 [Video Games, Modern Video Games]"
+      - "Fire Emblem Three Houses = Fire Emblem: Three Houses [Video Games, Modern Video Games]"
+      - "Pokemon Games = Pokémon (video game series) [Video Games, Modern Video Games]"
+      - "Genshin Impact [Video Games, Modern Video Games]"
+      - "Elden Ring [Video Games, Modern Video Games]"
+      - "Hollow Knight [Video Games, Modern Video Games]"
+      - "Hades = Hades (video game) [Video Games, Modern Video Games]"
+      - "Overwatch = Overwatch (video game) [Video Games, Modern Video Games]"
+      - "Fortnite [Video Games, Modern Video Games]"
+      - "Among Us [Video Games, Modern Video Games]"
+      - "Undertale [Video Games, Modern Video Games]"
+      - "Baldur's Gate 3 [Video Games, Modern Video Games]"
+      - "The Witcher = The Witcher (video game series) [Video Games, Modern Video Games]"
+      - "Splatoon [Video Games, Modern Video Games]"
+      - "God of War = God of War (franchise) [Video Games, Modern Video Games]"
+      - "Red Dead Redemption 2 [Video Games, Modern Video Games]"
+      - "Celeste = Celeste (video game) [Video Games, Modern Video Games]"
+      - "Cuphead [Video Games, Modern Video Games]"
+      - "Xenoblade Chronicles [Video Games, Modern Video Games]"
+      - "Horizon Zero Dawn [Video Games, Modern Video Games]"
+      - "The Last of Us [Video Games, Modern Video Games]"
+      # Shounen anime & manga
+      - "Naruto [Anime, Shounen Anime]"
+      - "Bleach = Bleach (manga) [Anime, Shounen Anime]"
+      - "One Piece [Anime, Shounen Anime]"
+      - "Dragon Ball [Anime, Shounen Anime]"
+      - "My Hero Academia [Anime, Shounen Anime]"
+      - "Attack on Titan [Anime, Shounen Anime]"
+      - "Hunter x Hunter = Hunter × Hunter [Anime, Shounen Anime]"
+      - "Death Note [Anime, Shounen Anime]"
+      - "Chainsaw Man [Anime, Shounen Anime]"
+      - "Demon Slayer = Demon Slayer: Kimetsu no Yaiba [Anime, Shounen Anime]"
+      - "Jujutsu Kaisen [Anime, Shounen Anime]"
+      - "Spy x Family = Spy × Family [Anime, Shounen Anime]"
+      - "Fullmetal Alchemist [Anime, Shounen Anime]"
+      - "Hajime no Ippo [Anime, Shounen Anime]"
+      - "Frieren = Frieren: Beyond Journey's End [Anime, Shounen Anime]"
+      # Seinen anime & manga
+      - "One-Punch Man [Anime, Seinen Anime]"
+      - "Berserk = Berserk (manga) [Anime, Seinen Anime]"
+      - "Vinland Saga [Anime, Seinen Anime]"
+      - "Monster = Monster (manga) [Anime, Seinen Anime]"
+      - "Tokyo Ghoul [Anime, Seinen Anime]"
+      - "Akira = Akira (manga) [Anime, Seinen Anime]"
+      - "Golden Kamuy [Anime, Seinen Anime]"
+      - "Ghost in the Shell [Anime, Seinen Anime]"
+      # Shoujo anime & manga
+      - "Fruits Basket [Anime, Shoujo Anime]"
+      - "Sailor Moon [Anime, Shoujo Anime]"
+      - "Ouran High School Host Club [Anime, Shoujo Anime]"
+      - "Cardcaptor Sakura [Anime, Shoujo Anime]"
+      - "Kimi ni Todoke [Anime, Shoujo Anime]"
+      - "Skip Beat = Skip Beat! [Anime, Shoujo Anime]"
+      - "Yona of the Dawn [Anime, Shoujo Anime]"
+      - "Nana = Nana (manga) [Anime, Shoujo Anime]"
+      # Korean webtoons
+      - "Solo Leveling [Anime]"
+      # Avatar (Nickelodeon)
+      - "Avatar The Last Airbender = Avatar: The Last Airbender [Avatar Franchise, Cartoons]"
+      - "The Legend of Korra [Avatar Franchise, Cartoons]"
+      - "Avatar Franchise = Avatar: The Last Airbender (franchise) [Avatar Franchise, Cartoons]"
+      # Books
+      - "The Hunger Games [Books]"
+      - "Ender's Game [Books]"
+      - "Super Powereds [Books]"
+      - "Dungeon Crawler Carl [Books]"
+      # Old Testament
+      - "Old Testament = Book of Genesis [The Bible]"
+      - "Old Testament = Book of Exodus [The Bible]"
+      - "Old Testament = Moses [The Bible]"
+      - "Old Testament = Noah's Ark [The Bible]"
+      - "Old Testament = David [The Bible]"
+      - "Old Testament = Book of Jonah [The Bible]"
+      - "Old Testament = Book of Daniel [The Bible]"
+      - "Old Testament = Samson [The Bible]"
+      - "Old Testament = Book of Esther [The Bible]"
+      - "Old Testament = Book of Ruth [The Bible]"
+      - "Old Testament = Abraham [The Bible]"
+      - "Old Testament = Joseph (Genesis) [The Bible]"
+      - "Old Testament = Elijah [The Bible]"
+      # New Testament
+      - "New Testament = Nativity of Jesus [The Bible]"
+      - "New Testament = Ministry of Jesus [The Bible]"
+      - "New Testament = Parables of Jesus [The Bible]"
+      - "New Testament = Miracles of Jesus [The Bible]"
+      - "New Testament = Sermon on the Mount [The Bible]"
+      - "New Testament = Last Supper [The Bible]"
+      - "New Testament = Crucifixion of Jesus [The Bible]"
+      - "New Testament = Acts of the Apostles [The Bible]"
+      - "New Testament = Paul the Apostle [The Bible]"
+      - "New Testament = Saint Peter [The Bible]"
+      - "New Testament = John the Baptist [The Bible]"
+      - "New Testament = Book of Revelation [The Bible]"
+      # Broadway musicals
+      - "Phantom of the Opera = The Phantom of the Opera (1986 musical) [Broadway Musicals]"
+      - "Les Miserables = Les Misérables (musical) [Broadway Musicals]"
+      - "Wicked = Wicked (musical) [Broadway Musicals]"
+      - "Rent = Rent (musical) [Broadway Musicals]"
+      - "Cats = Cats (musical) [Broadway Musicals]"
+      # Musicals of the last 10 years
+      - "Hamilton = Hamilton (musical) [Broadway Musicals, Modern Musicals]"
+      - "The Outsiders = The Outsiders (musical) [Broadway Musicals, Modern Musicals]"
+      - "Dear Evan Hansen [Broadway Musicals, Modern Musicals]"
+      - "Hadestown [Broadway Musicals, Modern Musicals]"
+      - "Six = Six (musical) [Broadway Musicals, Modern Musicals]"
+      - "Come from Away [Broadway Musicals, Modern Musicals]"
+      - "Mean Girls = Mean Girls (musical) [Broadway Musicals, Modern Musicals]"
+      - "Beetlejuice = Beetlejuice (musical) [Broadway Musicals, Modern Musicals]"
+      - "Moulin Rouge = Moulin Rouge! (musical) [Broadway Musicals, Modern Musicals]"
+      - "& Juliet [Broadway Musicals, Modern Musicals]"
+      - "Waitress = Waitress (musical) [Broadway Musicals, Modern Musicals]"
+      - "Kimberly Akimbo = Kimberly Akimbo (musical) [Broadway Musicals, Modern Musicals]"
+      - "Hell's Kitchen = Hell's Kitchen (musical) [Broadway Musicals, Modern Musicals]"
+      - "Frozen The Musical = Frozen (musical) [Broadway Musicals, Modern Musicals]"
+      - "Back to the Future The Musical = Back to the Future: The Musical [Broadway Musicals, Modern Musicals]"
+      - "Maybe Happy Ending [Broadway Musicals, Modern Musicals]"
+      # Disney animated movies
+      - "The Lion King [Disney Animated Movies]"
+      - "Aladdin = Aladdin (1992 Disney film) [Disney Animated Movies]"
+      - "Beauty and the Beast = Beauty and the Beast (1991 film) [Disney Animated Movies]"
+      - "The Little Mermaid = The Little Mermaid (1989 film) [Disney Animated Movies]"
+      - "Frozen = Frozen (2013 film) [Disney Animated Movies]"
+      - "Moana = Moana (2016 film) [Disney Animated Movies]"
+      - "Encanto [Disney Animated Movies]"
+      - "Tangled [Disney Animated Movies]"
+      - "Mulan = Mulan (1998 film) [Disney Animated Movies]"
+      - "Zootopia [Disney Animated Movies]"
+      - "Lilo & Stitch [Disney Animated Movies]"
+      - "Big Hero 6 = Big Hero 6 (film) [Disney Animated Movies]"
+      - "Hercules = Hercules (1997 film) [Disney Animated Movies]"
+      - "The Princess and the Frog [Disney Animated Movies]"
+      - "Wreck-It Ralph [Disney Animated Movies]"
+      - "Snow White = Snow White and the Seven Dwarfs (1937 film) [Disney Animated Movies]"
+      - "Cinderella = Cinderella (1950 film) [Disney Animated Movies]"
+      # Songs from Disney animated movies
+      - "Disney Songs = Let It Go (Disney song) [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = A Whole New World [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = Circle of Life [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = Under the Sea [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = Be Our Guest [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = Hakuna Matata (song) [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = We Don't Talk About Bruno [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = How Far I'll Go [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = Part of Your World [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = Colors of the Wind [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = Can You Feel the Love Tonight [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = Friend Like Me [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = You'll Be in My Heart [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = Go the Distance [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = Into the Unknown (song) [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
+      - "Disney Songs = Beauty and the Beast (Disney song) [Disney Animated Movies] {8: the song itself - its title, which character sings it, the film and scene, famous lyrics}"
       # Film and TV
-      - Star Wars
-      - Harry Potter
-      - Marvel Cinematic Universe
-      - The Simpsons
-      - Friends
-      - The Office = The Office (American TV series)
-      - Breaking Bad
-      - Stranger Things
-      - Pixar
-      - Studio Ghibli
-      - Back to the Future
+      - "Star Wars [Movies & TV]"
+      - "Harry Potter [Movies & TV]"
+      - "Marvel Cinematic Universe [Movies & TV]"
+      - "The Simpsons [Movies & TV]"
+      - "Friends [Movies & TV]"
+      - "The Office = The Office (American TV series) [Movies & TV]"
+      - "Breaking Bad [Movies & TV]"
+      - "Stranger Things [Movies & TV]"
+      - "Pixar [Movies & TV]"
+      - "Studio Ghibli [Movies & TV]"
+      - "Back to the Future [Movies & TV]"
       # Music
-      - The Beatles
-      - Taylor Swift
-      - Queen = Queen (band)
-      - Michael Jackson
-      - Beyonce = Beyoncé
-      - Nirvana = Nirvana (band)
+      - "The Beatles [Music]"
+      - "Taylor Swift [Music]"
+      - "Queen = Queen (band) [Music]"
+      - "Michael Jackson [Music]"
+      - "Beyonce = Beyoncé [Music]"
+      - "Nirvana = Nirvana (band) [Music]"

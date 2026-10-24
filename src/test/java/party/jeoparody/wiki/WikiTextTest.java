@@ -88,6 +88,64 @@ class WikiTextTest {
     @Test
     void answerKeysIgnoreArticlesCaseAndPunctuation() {
         assertEquals(WikiText.answerKey("The Legend of Zelda"), WikiText.answerKey("legend of zelda!"));
-        assertEquals("pokémon", WikiText.answerKey("Pokémon"));
+        assertEquals("pokemon", WikiText.answerKey("Pokémon"));
+    }
+
+    @Test
+    void topicsCanCarryGroupsAFocusNoteAndACount() {
+        WikiText.TopicSpec spec = WikiText.parseTopic(
+                "Disney Songs = Let It Go (Disney song) [Disney Movies, Disney Songs] {8: who sings it and in which film}");
+        assertEquals("Disney Songs", spec.keyword());
+        assertEquals("Let It Go (Disney song)", spec.pageQuery());
+        assertEquals(java.util.List.of("Disney Movies"), spec.groups(), "the keyword itself isn't repeated as a group");
+        assertEquals("who sings it and in which film", spec.focus());
+        assertEquals(Integer.valueOf(8), spec.count());
+
+        WikiText.TopicSpec plain = WikiText.parseTopic("Naruto [Shonen Anime, Anime]");
+        assertEquals("Naruto", plain.keyword());
+        assertEquals("Naruto", plain.pageQuery());
+        assertEquals(java.util.List.of("Shonen Anime", "Anime"), plain.groups());
+        assertEquals(null, plain.focus());
+        assertEquals(null, plain.count());
+        assertEquals(null, WikiText.parseTopic("Frieren {focus on the elves}").count());
+        assertEquals("focus on the elves", WikiText.parseTopic("Frieren {focus on the elves}").focus());
+    }
+
+    @Test
+    void storyOnlyDropsBehindTheScenesSections() {
+        String plot = "Katniss volunteers as tribute in place of her sister Prim. ".repeat(30);
+        String extract = "Lead paragraph about the film.\n\n== Plot ==\n" + plot
+                + "\n== Cast ==\nJennifer Lawrence as Katniss Everdeen.\n"
+                + "== Production ==\nThe director was hired in 2011.\n=== Filming ===\nShot in North Carolina.\n"
+                + "== Characters ==\nPeeta Mellark is the baker's son.\n"
+                + "== Box office ==\nIt grossed $694 million.\n"
+                + "== Critical reception ==\nCritics praised it.\n";
+        String story = WikiText.cleanArticle(extract, 100_000, true);
+        assertTrue(story.contains("Plot:"));
+        assertTrue(story.contains("Jennifer Lawrence as Katniss Everdeen."));
+        assertTrue(story.contains("Peeta Mellark is the baker's son."));
+        assertFalse(story.contains("director was hired"));
+        assertFalse(story.contains("North Carolina"), "subsections of dropped sections go too");
+        assertFalse(story.contains("694 million"));
+        assertFalse(story.contains("Critics praised"));
+        assertTrue(WikiText.cleanArticle(extract, 100_000, false).contains("director was hired"));
+    }
+
+    @Test
+    void shortStoryTextFallsBackToTheWholeArticle() {
+        String extract = "A song from Frozen.\n\n== Background ==\n" + "It was written for Elsa. ".repeat(80)
+                + "\n== Reception ==\nIt won awards.\n";
+        assertTrue(WikiText.cleanArticle(extract, 100_000, true).contains("written for Elsa"));
+    }
+
+    @Test
+    void searchResultsMustMatchTheQuery() {
+        assertTrue(WikiText.titleMatchesQuery("Spy × Family", "Spy x Family"));
+        assertTrue(WikiText.titleMatchesQuery("Frieren: Beyond Journey's End", "Frieren"));
+        assertTrue(WikiText.titleMatchesQuery("Let It Go (Disney song)", "Let It Go"));
+        assertTrue(WikiText.titleMatchesQuery("Pokémon (video game series)", "Pokemon video game series"));
+        assertFalse(WikiText.titleMatchesQuery("Super Mario", "Super Powereds"));
+        assertFalse(WikiText.titleMatchesQuery("Superpower (ability)", "Super Powereds"));
+        assertTrue(WikiText.titleMatchesQuery("Ender's Game", "Ender's Game"));
     }
 }
