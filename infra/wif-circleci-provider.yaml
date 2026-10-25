@@ -1,0 +1,25 @@
+# gcloud flags file for the CircleCI OIDC provider in Workload Identity Federation.
+# Used by: gcloud iam workload-identity-pools providers create-oidc circleci-oidc --flags-file=infra/wif-circleci-provider.yaml
+#
+# Every CircleCI job gets a short-lived OIDC token signed by CircleCI. Google exchanges it for ~1 hour
+# credentials only if the rules below pass. No service-account keys exist anywhere.
+#
+#   CircleCI org     37afcccc-e625-4cde-b508-2f9d9097152c
+#   CircleCI project ccb8edc1-2f1e-4e34-988b-53f915e4b7a0   (samchung777/jeoparody-party)
+#   Deploy context   9f90f75f-ab47-4a66-94e8-c96cf9901c13   (gcp-deploy: main branch only, this project only)
+
+--location: global
+--workload-identity-pool: circleci
+--display-name: CircleCI OIDC
+
+# Only tokens issued by our CircleCI organization, for our organization (aud = org ID)
+--issuer-uri: https://oidc.circleci.com/org/37afcccc-e625-4cde-b508-2f9d9097152c
+--allowed-audiences: 37afcccc-e625-4cde-b508-2f9d9097152c
+
+# Rejected outright (no credentials at all): any other CircleCI project, and any SSH re-run of a job.
+--attribute-condition: "assertion['oidc.circleci.com/project-id'] == 'ccb8edc1-2f1e-4e34-988b-53f915e4b7a0' && !assertion['oidc.circleci.com/ssh-rerun']"
+
+# attribute.project -> may use the CI-image service account (any branch, e.g. PR builds)
+# attribute.deploy  -> 'main' only on the main branch AND when the job uses the gcp-deploy context;
+#                      only 'main' may use the deploy service account.
+--attribute-mapping: "google.subject=assertion.sub,attribute.project=assertion['oidc.circleci.com/project-id'],attribute.deploy=('oidc.circleci.com/vcs-ref' in assertion && assertion['oidc.circleci.com/vcs-ref'] == 'refs/heads/main' && 'oidc.circleci.com/context-ids' in assertion && '9f90f75f-ab47-4a66-94e8-c96cf9901c13' in assertion['oidc.circleci.com/context-ids']) ? 'main' : 'no'"
