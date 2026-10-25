@@ -50,6 +50,7 @@ log "starting $image"
 docker run -d --name "$app" --network "$network" \
   -e DB_URL="jdbc:mysql://$db:3306/jeopardy" -e DB_USER=jeopardy -e DB_PASSWORD=jeopardy \
   -e TRIVIA_IMPORT_ON_STARTUP=false -e TRIVIA_ENRICHMENT_ENABLED=false \
+  -e TRIVIA_WIKI_ENABLED=false -e TRIVIA_WIKI_SEED=false \
   "$image" >/dev/null
 
 log "running smoke test inside the network"

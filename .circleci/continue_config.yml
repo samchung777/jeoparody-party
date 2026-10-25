@@ -1,0 +1,202 @@
+# Main pipeline, continued from the setup workflow in config.yml with these parameters:
+version: 2.1
+
+parameters:
+  app-changed:          # false when only documentation changed (scripts/ci-plan.sh)
+    type: boolean
+    default: false
+  ci-image-tag:         # fingerprint of ci/Dockerfile + pom.xml (scripts/ci-image-tag.sh)
+    type: string
+    default: ""
+
+executors:
+  base:
+    docker:
+      - image: cimg/base:current
+    resource_class: medium
+    # Not secrets: IDs the OIDC scripts need. No credentials live in CircleCI: every job that talks to Google
+    # exchanges its short-lived CircleCI OIDC token, and Google decides what that job may do.
+    environment: &gcp-env
+      GCP_PROJECT_ID: jeoparody-party
+      GCP_PROJECT_NUMBER: "20016506594"
+      REGISTRY: us-west1-docker.pkg.dev
+      CI_IMAGE: us-west1-docker.pkg.dev/jeoparody-party/ci/jeoparody-ci:<< pipeline.parameters.ci-image-tag >>
+      APP_IMAGE: us-west1-docker.pkg.dev/jeoparody-party/jeoparody/app:<< pipeline.git.revision >>
+  # The custom image this pipeline builds (job ci-image), plus MySQL as a sidecar container. The sidecar
+  # shares the job's network, so the tests reach it at 127.0.0.1:3306.
+  java-mysql:
+    docker:
+      - image: us-west1-docker.pkg.dev/jeoparody-party/ci/jeoparody-ci:<< pipeline.parameters.ci-image-tag >>
+      - image: mysql:8.4
+        environment:
+          MYSQL_ROOT_PASSWORD: rootpw
+    resource_class: medium
+    environment: *gcp-env
+  gcloud:
+    docker:
+      - image: google/cloud-sdk:slim
+    resource_class: small
+    environment: *gcp-env
+
+jobs:
+  ci-image:
+    description: Build and push the custom CI image, unless an image with this fingerprint already exists
+    executor: base
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Skip if this CI image already exists
+          command: |
+            if docker manifest inspect "$CI_IMAGE" > /dev/null 2>&1; then
+              echo "$CI_IMAGE already exists: nothing to build"
+              circleci-agent step halt
+            fi
+      - run:
+          name: Log in to Artifact Registry (OIDC -> circleci-ci-image)
+          command: |
+            bash scripts/gcp-oidc-token.sh "circleci-ci-image@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+              | docker login -u oauth2accesstoken --password-stdin "https://$REGISTRY"
+      - run:
+          name: Build and push the CI image
+          command: |
+            docker build -f ci/Dockerfile -t "$CI_IMAGE" .
+            docker push "$CI_IMAGE"
+
+  test:
+    description: Unit + integration tests in the custom CI image, against the MySQL sidecar
+    executor: java-mysql
+    steps:
+      - checkout
+      - run:
+          name: Wait for the MySQL sidecar
+          command: bash scripts/wait-for-db.sh
+      - run:
+          name: mvn verify (unit tests, jar, integration tests)
+          command: mvn -B verify
+      - store_test_results:
+          path: target/surefire-reports
+      - store_test_results:
+          path: target/failsafe-reports
+      - store_artifacts:
+          path: target/jeoparody-party.jar
+          destination: jeoparody-party.jar
+      - persist_to_workspace:
+          root: .
+          paths:
+            - target/jeoparody-party.jar
+            - scripts
+
+  build-image:
+    description: Package the tested jar into the app image and prove the image works
+    executor: base
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - setup_remote_docker
+      - run:
+          name: Build the app image
+          command: docker build --build-arg GIT_SHA="$CIRCLE_SHA1" -t "$APP_IMAGE" .
+      - run:
+          name: Test the image (app + MySQL containers, smoke test)
+          command: bash scripts/test-image.sh "$APP_IMAGE"
+      - when:   # only main deploys, so only main hands the image on
+          condition:
+            equal: [ main, << pipeline.git.branch >> ]
+          steps:
+            - run:
+                name: Save the tested image for publishing
+                command: mkdir -p image && docker save "$APP_IMAGE" | gzip > image/app.tar.gz
+            - persist_to_workspace:
+                root: .
+                paths:
+                  - image
+
+  publish:
+    description: Push the exact image that was tested to Artifact Registry
+    executor: base
+    steps:
+      - attach_workspace:
+          at: .
+      - setup_remote_docker
+      - run:
+          name: Load the tested image
+          command: gunzip -c image/app.tar.gz | docker load
+      - run:
+          name: Log in to Artifact Registry (OIDC -> circleci-deploy)
+          command: |
+            bash scripts/gcp-oidc-token.sh "circleci-deploy@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+              | docker login -u oauth2accesstoken --password-stdin "https://$REGISTRY"
+      - run:
+          name: Push the app image
+          command: docker push "$APP_IMAGE"
+
+  deploy:
+    description: Deploy to Cloud Run as a no-traffic candidate, smoke-test it, then shift all traffic to it
+    executor: gcloud
+    environment:
+      SERVICE: jeoparody-party
+      REGION: us-west1
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          name: Sign gcloud in (OIDC -> circleci-deploy)
+          command: bash scripts/gcp-oidc-login.sh "circleci-deploy@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
+      - run:
+          name: Deploy candidate revision (no traffic yet)
+          command: |
+            gcloud run deploy "$SERVICE" --image="$APP_IMAGE" --region="$REGION" \
+              --no-traffic --tag=candidate --quiet
+      - run:
+          name: Smoke-test the candidate
+          command: |
+            url=$(gcloud run services describe "$SERVICE" --region="$REGION" --format=json \
+              | python3 -c 'import json,sys; t=json.load(sys.stdin)["status"]["traffic"]; print(next(x["url"] for x in t if x.get("tag")=="candidate"))')
+            echo "candidate: $url"
+            sh scripts/smoke-test.sh "$url"
+      - run:
+          name: Promote the candidate to 100% of traffic
+          command: gcloud run services update-traffic "$SERVICE" --region="$REGION" --to-latest --quiet
+      - run:
+          name: Smoke-test the live service
+          command: sh scripts/smoke-test.sh "$(gcloud run services describe "$SERVICE" --region="$REGION" --format='value(status.url)')"
+
+  skip-build:
+    description: Placeholder so documentation-only changes still report a green status
+    docker:
+      - image: cimg/base:current
+    resource_class: small
+    steps:
+      - run: echo "Only documentation changed, so there is nothing to build, test or deploy."
+
+workflows:
+  build-test-deploy:
+    when: << pipeline.parameters.app-changed >>
+    jobs:
+      - ci-image
+      - test:
+          requires: [ ci-image ]
+      - build-image:
+          requires: [ test ]
+      # Deploying needs all three gates: branch main (filters), the gcp-deploy context (restricted to this
+      # project and main), and Google's own check of the OIDC token (infra/wif-circleci-provider.yaml).
+      - publish:
+          context: gcp-deploy
+          requires: [ build-image ]
+          filters:
+            branches:
+              only: main
+      - deploy:
+          context: gcp-deploy
+          requires: [ publish ]
+          filters:
+            branches:
+              only: main
+
+  docs-only:
+    when:
+      not: << pipeline.parameters.app-changed >>
+    jobs:
+      - skip-build
