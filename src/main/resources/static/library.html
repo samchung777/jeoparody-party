@@ -66,6 +66,24 @@
   <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.
 </footer>
 <script>
+  // Admin API calls carry the admin key (needed once the app is public; ignored locally).
+  async function adminFetch(url, options = {}) {
+    const call = () => {
+      let key = '';
+      try { key = sessionStorage.getItem('jeoparody-admin-key') || ''; } catch {}
+      return fetch(url, { ...options, headers: { ...(options.headers || {}), 'X-Admin-Key': key } });
+    };
+    let res = await call();
+    if (res.status === 401) {
+      const key = prompt('Admin key for this Jeoparody Party server:');
+      if (key) {
+        try { sessionStorage.setItem('jeoparody-admin-key', key.trim()); } catch {}
+        res = await call();
+      }
+    }
+    return res;
+  }
+
   const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   async function loadCategories() {
@@ -92,7 +110,7 @@
   }
 
   async function pollStatus() {
-    const s = await (await fetch('/api/admin/import')).json();
+    const s = await (await adminFetch('/api/admin/import')).json();
     document.getElementById('status').textContent = s.running
       ? `Importing… ${s.categoriesDone}/${s.categoriesTotal} categories, ${s.cluesAdded} new clues`
       : (s.finishedAt ? `Last import added ${s.cluesAdded} clues${s.lastError ? ' (warning: ' + s.lastError + ')' : ''}` : '');
@@ -111,7 +129,7 @@
   }
 
   async function pollEnrichment() {
-    const s = await (await fetch('/api/admin/enrich')).json();
+    const s = await (await adminFetch('/api/admin/enrich')).json();
     const el = document.getElementById('enrich');
     if (!s.enabled) { el.textContent = 'Gemini enrichment is turned off.'; return; }
     el.textContent = s.running
@@ -122,7 +140,7 @@
   }
 
   async function loadFlagged() {
-    const items = await (await fetch('/api/admin/feedback')).json();
+    const items = await (await adminFetch('/api/admin/feedback')).json();
     const el = document.getElementById('flagged');
     if (!items.length) { el.textContent = 'Nothing flagged yet.'; return; }
     el.innerHTML = items.map(f => `
@@ -136,13 +154,13 @@
   document.getElementById('flagged').addEventListener('click', async e => {
     const b = e.target.closest('[data-restore]');
     if (!b) return;
-    await fetch(`/api/admin/clues/${b.dataset.restore}/restore`, { method: 'POST' });
+    await adminFetch(`/api/admin/clues/${b.dataset.restore}/restore`, { method: 'POST' });
     loadFlagged(); loadKeywords(); loadCategories();
   });
   loadFlagged();
 
   async function loadRemovedCats() {
-    const cats = await (await fetch('/api/admin/keywords/removed')).json();
+    const cats = await (await adminFetch('/api/admin/keywords/removed')).json();
     document.getElementById('removedCats').innerHTML = cats.length
       ? cats.map(c => `<span class="tag">${esc(c.title || c.name)} <small>${esc(c.name)} · ${c.clueCount} clues${c.note ? ' · ' + esc(c.note) : ''}</small>
           <button class="x" data-restore-kw="${c.id}" title="Restore">↩ Restore</button></span>`).join('')
@@ -152,19 +170,19 @@
     const rm = e.target.closest('[data-remove-kw]');
     if (rm) {
       if (!confirm(`Remove the category "${rm.dataset.name}" from future games? Its clues stay available to other categories.`)) return;
-      await fetch(`/api/admin/keywords/${rm.dataset.removeKw}/remove`, { method: 'POST' });
+      await adminFetch(`/api/admin/keywords/${rm.dataset.removeKw}/remove`, { method: 'POST' });
       loadKeywords(); loadRemovedCats();
     }
     const rs = e.target.closest('[data-restore-kw]');
     if (rs) {
-      await fetch(`/api/admin/keywords/${rs.dataset.restoreKw}/restore`, { method: 'POST' });
+      await adminFetch(`/api/admin/keywords/${rs.dataset.restoreKw}/restore`, { method: 'POST' });
       loadKeywords(); loadRemovedCats();
     }
   });
   loadRemovedCats();
 
   async function loadWiki() {
-    const res = await (await fetch('/api/admin/wiki/topics')).json();
+    const res = await (await adminFetch('/api/admin/wiki/topics')).json();
     const body = document.getElementById('wikiList');
     if (!res.enabled) document.getElementById('wikiMsg').textContent = 'Wikipedia clues are turned off (needs Gemini).';
     const icon = { queued: '⏳ queued', done: '✅ done', failed: '⚠️ failed', not_found: '❓ not found' };
@@ -179,7 +197,7 @@
   document.getElementById('wikiBtn').addEventListener('click', async () => {
     const topics = document.getElementById('wikiTopics').value;
     if (!topics.trim()) return;
-    const res = await fetch('/api/admin/wiki/topics', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const res = await adminFetch('/api/admin/wiki/topics', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ topics }) });
     const data = await res.json();
     document.getElementById('wikiMsg').textContent = res.ok ? `Queued ${data.queued.length} topic(s).` : data.message;
@@ -187,7 +205,7 @@
     loadWiki();
 
   async function loadReview() {
-    const r = await (await fetch('/api/admin/review')).json();
+    const r = await (await adminFetch('/api/admin/review')).json();
     document.getElementById('reviewStatus').textContent = r.enabled
       ? `Behind-the-scenes check: ${r.pending} clues waiting, ${r.retired} retired so far (see Flagged clues to restore any).`
       : '';
@@ -198,12 +216,12 @@
   loadWiki();
 
   document.getElementById('enrichBtn').addEventListener('click', async () => {
-    await fetch('/api/admin/enrich', { method: 'POST' });
+    await adminFetch('/api/admin/enrich', { method: 'POST' });
     setTimeout(pollEnrichment, 1000);
   });
 
   document.getElementById('import').addEventListener('click', async () => {
-    await fetch('/api/admin/import', { method: 'POST' });
+    await adminFetch('/api/admin/import', { method: 'POST' });
     pollStatus();
   });
 

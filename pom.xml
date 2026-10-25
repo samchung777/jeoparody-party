@@ -19,7 +19,7 @@
 
     <properties>
         <java.version>21</java.version>
-        <google-auth.version>1.23.0</google-auth.version>
+        <cloud-sql-socket-factory.version>1.21.2</cloud-sql-socket-factory.version>
     </properties>
 
     <dependencies>
@@ -47,11 +47,13 @@
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-mysql</artifactId>
         </dependency>
-        <!-- Application Default Credentials for calling Vertex AI (Gemini) without API keys -->
+        <!-- Connects to Cloud SQL from Cloud Run with IAM (no IP allow-lists, TLS handled for us).
+             Also brings google-auth-library, which GeminiClient uses for Application Default Credentials;
+             letting this library choose that version keeps the two compatible. -->
         <dependency>
-            <groupId>com.google.auth</groupId>
-            <artifactId>google-auth-library-oauth2-http</artifactId>
-            <version>${google-auth.version}</version>
+            <groupId>com.google.cloud.sql</groupId>
+            <artifactId>mysql-socket-factory-connector-j-8</artifactId>
+            <version>${cloud-sql-socket-factory.version}</version>
             <exclusions>
                 <!-- Spring provides its own commons-logging bridge (spring-jcl) -->
                 <exclusion>
