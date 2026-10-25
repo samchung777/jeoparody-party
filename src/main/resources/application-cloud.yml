@@ -20,3 +20,9 @@ trivia:
 
 app:
   admin-key: ${ADMIN_KEY}     # required: protects /api/admin/** once the app is public
+
+server:
+  # Cloud Run terminates HTTPS and forwards plain HTTP to the container with X-Forwarded-Proto/Host headers.
+  # Without trusting them, the app thinks it is serving http://...:8080, so the browser's WebSocket handshake
+  # (Origin: https://...run.app) fails Spring's same-origin check and every game page stays blank.
+  forward-headers-strategy: framework
