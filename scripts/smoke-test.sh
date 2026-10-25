@@ -66,7 +66,7 @@ if [ "$STATUS" = 201 ] && [ -n "$code" ] && echo "$BODY" | grep -q '"hostKey"'; 
   # 5b. ...and a browser can open its WebSocket. Sends the same Origin a real page would, so it catches
   # proxy/origin mistakes (e.g. HTTPS terminated in front of the app) that leave every game page blank.
   # A successful upgrade (101) keeps the connection open, so curl ends by timeout; we only need the status.
-  ws_status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 \
+  ws_status=$(curl -sS -o /dev/null -w '%{http_code}' --http1.1 --max-time 5 \
     -H "Origin: $BASE_URL" -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
     -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: c21va2UtdGVzdC1rZXkxMg==' \
     "$BASE_URL/ws?game=$code&role=board" 2>/dev/null) || true
