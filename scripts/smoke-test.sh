@@ -18,7 +18,10 @@ fail() { printf '[smoke] FAIL %s\n' "$*" >&2; FAILURES=$((FAILURES + 1)); }
 # HTTP helper: sets $STATUS and $BODY in the current shell (no subshell, so the values survive)
 request() {
   tmp="${TMPDIR:-/tmp}/smoke.$$"
-  STATUS=$(curl -sS -o "$tmp" -w '%{http_code}' -X "$1" --max-time 15 "$BASE_URL$2" 2>/dev/null) || STATUS=000
+  # Body-less POSTs still need "Content-Length: 0": Google's front end (Cloud Run) rejects them with 411 otherwise
+  len=""
+  [ "$1" = "GET" ] || len="Content-Length: 0"
+  STATUS=$(curl -sS -o "$tmp" -w '%{http_code}' -X "$1" ${len:+-H "$len"} --max-time 15 "$BASE_URL$2" 2>/dev/null) || STATUS=000
   BODY=$(cat "$tmp" 2>/dev/null || true)
   rm -f "$tmp"
 }

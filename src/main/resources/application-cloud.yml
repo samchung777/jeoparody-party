@@ -1,12 +1,14 @@
-# Profile for Cloud Run (SPRING_PROFILES_ACTIVE=cloud). Everything secret comes from Secret Manager
-# as environment variables; nothing sensitive lives in this file or the image.
+# Profile for Cloud Run (SPRING_PROFILES_ACTIVE=cloud). The one secret (ADMIN_KEY) comes from Secret Manager
+# as an environment variable; nothing sensitive lives in this file or the image.
 spring:
   datasource:
     # The Cloud SQL socket factory connects with the service account's IAM permissions (roles/cloudsql.client),
-    # so the database needs no public IP allow-list.
-    url: jdbc:mysql:///${DB_NAME:jeopardy}?cloudSqlInstance=${CLOUD_SQL_INSTANCE}&socketFactory=com.google.cloud.sql.mysql.SocketFactory
-    username: ${DB_USER:jeopardy}
-    password: ${DB_PASSWORD}
+    # so the database needs no public IP allow-list. enableIamAuth=true also logs in to MySQL as that service
+    # account (IAM database authentication), so there is no database password anywhere: the connector sends a
+    # short-lived OAuth token instead. MySQL's user name for a service account is the email up to the '@'.
+    url: jdbc:mysql:///${DB_NAME:jeopardy}?cloudSqlInstance=${CLOUD_SQL_INSTANCE}&socketFactory=com.google.cloud.sql.mysql.SocketFactory&enableIamAuth=true&sslMode=DISABLED
+    username: ${DB_USER:jeoparody-run}
+    password: iam-auth    # required by the driver, ignored with enableIamAuth (the connector supplies a token)
     hikari:
       maximum-pool-size: 5    # the smallest Cloud SQL tier allows few connections
 
