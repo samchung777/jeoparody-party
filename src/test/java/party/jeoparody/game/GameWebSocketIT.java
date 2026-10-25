@@ -207,6 +207,7 @@ class GameWebSocketIT {
         // Final category vote
         JsonNode finalVote = alice.awaitPhase("FINAL_VOTING");
         alice.send("voteFinal", Map.of("keywordId", finalVote.path("finalOptions").get(0).path("id").asLong()));
+        awaitFinalVotes(host, 1);
         host.send("closeFinalVoting");
         JsonNode hostBoard = host.awaitPhase("BOARD");
         assertEquals(6, hostBoard.path("board").path("categories").size());
@@ -289,6 +290,7 @@ class GameWebSocketIT {
         host.send("closeVoting");
         JsonNode finals = alice.awaitPhase("FINAL_VOTING");
         alice.send("voteFinal", Map.of("keywordId", finals.path("finalOptions").get(0).path("id").asLong()));
+        awaitFinalVotes(host, 1);
         host.send("closeFinalVoting");
         host.awaitPhase("BOARD");
         host.send("adjustScore", Map.of("teamId", aliceId, "delta", 400));
@@ -299,6 +301,21 @@ class GameWebSocketIT {
         assertEquals(2, again.path("gameNumber").asInt());
         assertEquals(0, again.path("me").path("score").asInt());
         assertEquals("Alice", again.path("me").path("name").asText());
+    }
+
+    /**
+     * Waits until the host's view has counted this many Final Jeopardy votes. Each screen has its own socket,
+     * so without this the host's closeFinalVoting can overtake a player's vote, which then arrives during
+     * the board and is rejected (a flaky failure that showed up in CI, not on a fast laptop).
+     */
+    private static void awaitFinalVotes(Screen host, int expected) throws InterruptedException {
+        host.awaitState(s -> {
+            int total = 0;
+            for (JsonNode k : s.path("finalOptions")) {
+                total += k.path("votes").asInt();
+            }
+            return total == expected;
+        });
     }
 
     private static int[] firstNormalCell(JsonNode hostState) {
