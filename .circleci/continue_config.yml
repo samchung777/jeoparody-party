@@ -74,6 +74,10 @@ jobs:
       - run:
           name: mvn verify (unit tests, jar, integration tests)
           command: mvn -B verify
+      - run:
+          name: Drop Failsafe's summary file (not JUnit XML, so CircleCI can't parse it)
+          when: always
+          command: rm -f target/failsafe-reports/failsafe-summary.xml
       - store_test_results:
           path: target/surefire-reports
       - store_test_results:
