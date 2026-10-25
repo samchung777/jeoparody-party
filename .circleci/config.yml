@@ -1,16 +1,31 @@
+# Setup workflow (dynamic config). One small job looks at what changed, works out the custom CI image's
+# tag, and continues the pipeline with .circleci/continue_config.yml, where the real work lives.
+# Logic: scripts/ci-plan.sh. Run "Trigger pipeline" with force-build=true to build regardless of changes.
 version: 2.1
+setup: true
+
+parameters:
+  force-build:
+    type: boolean
+    default: false
 
 jobs:
-  hello:
+  plan:
     docker:
       - image: cimg/base:current
+    resource_class: small
     steps:
       - checkout
       - run:
-          name: Say hello
-          command: echo "CircleCI is connected to $CIRCLE_PROJECT_REPONAME on branch $CIRCLE_BRANCH"
+          name: Path filtering + continue the pipeline
+          environment:
+            FORCE_BUILD: << pipeline.parameters.force-build >>
+          command: bash scripts/ci-plan.sh
+      - store_artifacts:
+          path: /tmp/plan
+          destination: plan
 
 workflows:
-  main:
+  setup:
     jobs:
-      - hello
+      - plan
