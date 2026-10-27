@@ -12,6 +12,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import party.jeoparody.support.IntegrationTest;
 import party.jeoparody.support.TestData;
 
+/**
+ * Integration test (Failsafe, `*IT`): runs against real MySQL (docker-compose locally, the MySQL sidecar in CircleCI).
+ * Checks which keywords are playable and that finished games are saved once.
+ */
 class GameRepositoryIT extends IntegrationTest {
 
     @Autowired

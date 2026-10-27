@@ -31,9 +31,15 @@ public final class OpenTdbParser {
     private static final Pattern NEEDS_OPTIONS = Pattern.compile(
             "(?i)\\b(which|what)( one)? of (the following|these|those)\\b");
 
+    /**
+     * Static helpers only: pure parsing, unit-tested by OpenTdbParserTest with saved API responses.
+     */
     private OpenTdbParser() {
     }
 
+    /**
+     * Open Trivia DB's own status code (0 = success, others = no results, token exhausted, rate limited...).
+     */
     public static int responseCode(JsonNode root) {
         return root.path("response_code").asInt(-1);
     }
@@ -76,6 +82,7 @@ public final class OpenTdbParser {
         return (colon >= 0 ? rawCategory.substring(colon + 1) : rawCategory).trim();
     }
 
+    /** Undoes the URL encoding requested with encode=url3986. */
     static String decode(String value) {
         return URLDecoder.decode(value, StandardCharsets.UTF_8);
     }

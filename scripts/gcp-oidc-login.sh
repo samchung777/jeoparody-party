@@ -4,6 +4,7 @@
 # Same trust rules as scripts/gcp-oidc-token.sh.
 #
 # Usage: scripts/gcp-oidc-login.sh SERVICE_ACCOUNT_EMAIL
+# Used by: the deploy job (circleci-deploy). Needs gcloud, so it runs in the google/cloud-sdk image.
 set -euo pipefail
 
 sa="${1:?usage: scripts/gcp-oidc-login.sh SERVICE_ACCOUNT_EMAIL}"

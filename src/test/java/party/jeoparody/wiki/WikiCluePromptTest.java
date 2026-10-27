@@ -10,6 +10,10 @@ import org.junit.jupiter.api.Test;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+/**
+ * Unit test (Surefire, `*Test`): no database or network, runs in milliseconds in the CircleCI test job.
+ * Checks the Wikipedia clue prompt and that unverifiable or off-topic clues are dropped.
+ */
 class WikiCluePromptTest {
 
     private final ObjectMapper mapper = new ObjectMapper();

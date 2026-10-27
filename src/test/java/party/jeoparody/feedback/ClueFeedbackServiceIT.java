@@ -21,6 +21,10 @@ import party.jeoparody.support.IntegrationTest;
 import party.jeoparody.support.TestData;
 import party.jeoparody.trivia.TriviaRepository;
 
+/**
+ * Integration test (Failsafe, `*IT`): runs against real MySQL (docker-compose locally, the MySQL sidecar in CircleCI).
+ * Checks host feedback end to end in the database: remove, reword, restore, remove/restore a category.
+ */
 class ClueFeedbackServiceIT extends IntegrationTest {
 
     @Autowired

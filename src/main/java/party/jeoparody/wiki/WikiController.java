@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Queue Wikipedia topics and watch their progress from the trivia library page. */
-// TODO (deploy step): protect /api/admin/** before the app is public.
+// Protected: AdminKeyFilter requires the X-Admin-Key header on /api/admin/** (key from Secret Manager on Cloud Run).
 @RestController
 @RequestMapping("/api/admin/wiki")
 public class WikiController {
@@ -21,6 +21,7 @@ public class WikiController {
     private final WikiClueService service;
     private final WikiRepository repository;
 
+    /** Admin API used by library.html: queue topics and watch progress. */
     public WikiController(WikiClueService service, WikiRepository repository) {
         this.service = service;
         this.repository = repository;
@@ -37,6 +38,7 @@ public class WikiController {
         return ResponseEntity.accepted().body(Map.of("queued", topics));
     }
 
+    /** GET /api/admin/wiki/topics: topic statuses and counts. */
     @GetMapping("/topics")
     public Map<String, Object> list(@RequestParam(defaultValue = "200") int limit) {
         return Map.of("enabled", service.enabled(), "topics", repository.list(Math.clamp(limit, 1, 1000)));

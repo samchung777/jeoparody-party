@@ -13,17 +13,23 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Review and undo clue feedback from the trivia library page. */
-// TODO (deploy step): protect /api/admin/** before the app is public.
+// Protected: AdminKeyFilter requires the X-Admin-Key header on /api/admin/** (key from Secret Manager on Cloud Run).
 @RestController
 @RequestMapping("/api/admin")
 public class FeedbackController {
 
     private final ClueFeedbackService feedback;
 
+    /**
+     * Thin REST layer over ClueFeedbackService for library.html (adminFetch adds the admin key).
+     */
     public FeedbackController(ClueFeedbackService feedback) {
         this.feedback = feedback;
     }
 
+    /**
+     * GET /api/admin/feedback: recent removals and rewrites. The limit is clamped so a request can't ask for everything.
+     */
     @GetMapping("/feedback")
     public List<ClueFeedbackService.FlaggedClue> recent(@RequestParam(defaultValue = "100") int limit) {
         return feedback.recent(Math.clamp(limit, 1, 500));
@@ -36,17 +42,20 @@ public class FeedbackController {
         return ResponseEntity.noContent().build();
     }
 
+    /** POST /api/admin/keywords/{id}/restore. 204 No Content on success. */
     @PostMapping("/keywords/{id}/restore")
     public ResponseEntity<Void> restoreKeyword(@PathVariable long id) {
         feedback.restoreKeyword(id);
         return ResponseEntity.noContent().build();
     }
 
+    /** GET /api/admin/keywords/removed. */
     @GetMapping("/keywords/removed")
     public List<ClueFeedbackService.RemovedCategory> removedKeywords() {
         return feedback.removedKeywords();
     }
 
+    /** POST /api/admin/clues/{id}/restore. */
     @PostMapping("/clues/{id}/restore")
     public ResponseEntity<Void> restore(@PathVariable long id) {
         feedback.restore(id);

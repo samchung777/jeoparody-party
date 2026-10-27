@@ -13,6 +13,10 @@ import java.util.Set;
 
 /**
  * Pure logic for turning votes and keywords into boards: no I/O, deterministic given the {@link Random}.
+ *
+ * Where it fits: Game calls it to draw the voting pool, rank votes, fill each category column, hide Daily
+ * Doubles and pick the Final clue. Why it matters: all randomness lives here behind one Random, so tests pass a
+ * seeded Random and get the same board every time (BoardBuilderTest).
  */
 public final class BoardBuilder {
 
@@ -29,6 +33,7 @@ public final class BoardBuilder {
 
     private final Random random;
 
+    /** GameService passes a Random seeded from SecureRandom; tests pass a fixed seed. */
     public BoardBuilder(Random random) {
         this.random = random;
     }
@@ -118,6 +123,9 @@ public final class BoardBuilder {
         return Optional.empty();
     }
 
+    /**
+     * Picks a row using DAILY_DOUBLE_ROW_WEIGHTS: rows 3 and 4 (the $600-$1000 / $1200-$2000 rows) are most likely.
+     */
     private int weightedRow() {
         int total = 0;
         for (int w : DAILY_DOUBLE_ROW_WEIGHTS) {

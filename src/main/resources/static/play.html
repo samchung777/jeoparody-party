@@ -77,12 +77,18 @@
 
   <section id="main"></section>
 </main>
+<!--
+  Player phone screen (play.html?game=CODE). Join with a drawn team name, vote for categories (or search for
+  one), buzz in, wager, and draw the Final Jeopardy answer. Everything goes over one WebSocket (role=player).
+-->
 <script src="/js/game.js"></script>
 <script src="/js/drawpad.js"></script>
 <script>
   const { esc, money, teamById } = Jeo;
   const $ = id => document.getElementById(id);
   const code = (Jeo.params().get('game') || '').toUpperCase();
+  // The team id and token are saved in this phone's localStorage, so a refresh or lost connection rejoins the
+  // same team instead of creating a new one.
   const storageKey = `jeoparody-team-${code}`;
   let state = null;
 
@@ -105,6 +111,7 @@
     const namePad = new DrawPad($('namePad'));
     const answerPad = new DrawPad($('answerPad'));
 
+    // Connect as a player; if this phone already joined, send teamId and token so the server reconnects it.
     const conn = Jeo.connect(() => {
       const saved = load();
       return `game=${encodeURIComponent(code)}&role=player` +
@@ -125,6 +132,7 @@
 
     $('joinBtn').onclick = () => {
       if (namePad.isEmpty() && !$('nameText').value.trim()) return Jeo.toast('Draw or type a team name');
+      // Join: typed name plus the drawn name tag as a PNG data URL.
       conn.send('join', { name: $('nameText').value, drawing: namePad.isEmpty() ? null : namePad.toDataURL() });
     };
     $('wagerBtn').onclick = () => {
@@ -143,6 +151,7 @@
       clearTimeout(searchTimer);
       const q = $('searchInput').value.trim();
       if (!q) { searchResults = []; renderSearch(); return; }
+      // Debounced search: waits 250 ms after typing stops, then asks the server; only this phone gets results.
       searchTimer = setTimeout(() => conn.send('search', { query: q }, true), 250);
     });
 
@@ -150,6 +159,7 @@
     $('main').addEventListener('pointerdown', e => {
       if (e.target.closest('#buzz') && state && state.me && state.me.canBuzz) {
         e.preventDefault();
+        // The buzz. The server decides who was first (Game.buzz is synchronized), so it's fair across phones.
         conn.send('buzz');
         if (navigator.vibrate) navigator.vibrate(40);
       }
@@ -197,6 +207,8 @@
     if (id) $(id).classList.remove('hidden');
   }
 
+  // Redraws for the latest state: picks what to show from state.phase. Input sections (join, wager, Final)
+  // stay in place so typing and drawings aren't wiped when a new state arrives.
   function render() {
     const s = state;
     const me = s.me;

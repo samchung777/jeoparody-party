@@ -21,12 +21,19 @@ import party.jeoparody.enrich.EnrichmentService;
  *   <li><b>reword</b> – the clue goes back through Gemini with the host's note as guidance.</li>
  * </ul>
  * Every action is logged in {@code clue_feedback}.
+ *
+ * Where it fits: called from the host screen during a game (GameSocketHandler: clueFeedback, removeCategory) and
+ * from the library page (FeedbackController). Why it matters: it is how play-testing improves the content: bad
+ * clues leave future games without being deleted, so they stay restorable and can't be re-imported.
  */
 @Service
 public class ClueFeedbackService {
 
     private static final Logger log = LoggerFactory.getLogger(ClueFeedbackService.class);
 
+    /**
+     * Allowed reasons (anything else is stored as 'other'); each maps to guidance for Gemini in rewordHint.
+     */
     public static final Set<String> REASONS = Set.of("wrong", "unclear", "obscure", "giveaway", "offensive", "other");
     static final int MAX_NOTE = 300;
 
@@ -39,11 +46,16 @@ public class ClueFeedbackService {
     private final JdbcTemplate jdbc;
     private final EnrichmentService enrichment;
 
+    /** Needs EnrichmentService to send 'reword' clues back through Gemini. */
     public ClueFeedbackService(JdbcTemplate jdbc, EnrichmentService enrichment) {
         this.jdbc = jdbc;
         this.enrichment = enrichment;
     }
 
+    /**
+     * Applies one host decision in a single transaction: 'remove' retires the clue; 'reword' resets its enrichment
+     * version so the next Gemini pass rewrites it, guided by the reason and note. Then logs it in clue_feedback.
+     */
     @Transactional
     public void submit(long clueId, String action, String reason, String note, String gameCode) {
         String cleanReason = REASONS.contains(reason) ? reason : "other";
@@ -73,6 +85,7 @@ public class ClueFeedbackService {
         }
     }
 
+    /** Undo for a removed clue (from the library page); also logged. */
     @Transactional
     public void restore(long clueId) {
         if (jdbc.update("UPDATE clue SET retired_at = NULL WHERE id = ?", clueId) == 0) {
@@ -106,12 +119,14 @@ public class ClueFeedbackService {
         log.info("Category {} removed{}", keywordId, stored == null ? "" : " (" + stored + ")");
     }
 
+    /** Undo for a removed category: it can appear in votes and boards again. */
     public void restoreKeyword(long keywordId) {
         if (jdbc.update("UPDATE keyword SET retired_at = NULL, retired_note = NULL WHERE id = ?", keywordId) == 0) {
             throw new IllegalArgumentException("Category " + keywordId + " not found");
         }
     }
 
+    /** Removed categories, newest first, with how many clues they hold (library page). */
     public List<RemovedCategory> removedKeywords() {
         return jdbc.query("""
                 SELECT k.id, k.name, k.title, k.retired_note, k.retired_at, COUNT(ck.clue_id) AS clue_count
@@ -146,6 +161,7 @@ public class ClueFeedbackService {
                 limit);
     }
 
+    /** Turns the host's reason and note into an instruction Gemini reads on the next rewrite. */
     private static String rewordHint(String reason, String note) {
         String why = switch (reason) {
             case "wrong" -> "The response may be wrong or outdated.";

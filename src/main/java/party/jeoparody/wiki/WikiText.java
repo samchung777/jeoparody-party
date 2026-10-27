@@ -53,6 +53,7 @@ public final class WikiText {
     /** If dropping behind-the-scenes sections leaves less than this, the whole article is used instead. */
     static final int MIN_STORY_CHARS = 1500;
 
+    /** Static text helpers only: pure functions, unit-tested by WikiTextTest. */
     private WikiText() {
     }
 
@@ -150,6 +151,9 @@ public final class WikiText {
         return out.toString();
     }
 
+    /**
+     * Cuts long text at a sentence end, so Gemini never sees half a sentence (and token cost stays bounded).
+     */
     public static String truncateAtSentence(String text, int maxChars) {
         if (text.length() <= maxChars) {
             return text;
@@ -170,6 +174,7 @@ public final class WikiText {
         return !queryWords.isEmpty() && titleWords.containsAll(queryWords);
     }
 
+    /** Lower-case word set, for comparing titles with queries. */
     private static Set<String> words(String s) {
         Set<String> out = new LinkedHashSet<>();
         for (String w : normalize(s).replaceAll("[^\\p{L}\\p{N}' ]", " ").split(" ")) {
@@ -218,6 +223,7 @@ public final class WikiText {
         return stripArticle(normalize(answer)).replaceAll("[^\\p{L}\\p{N} ]", "").trim();
     }
 
+    /** Drops a leading 'the', 'a' or 'an' from an answer before comparing answers. */
     private static String stripArticle(String s) {
         for (String article : ARTICLES) {
             if (s.startsWith(article)) {
@@ -227,6 +233,7 @@ public final class WikiText {
         return s;
     }
 
+    /** Collapses whitespace. */
     private static String collapse(String s) {
         return s == null ? "" : SPACES.matcher(s).replaceAll(" ").trim();
     }

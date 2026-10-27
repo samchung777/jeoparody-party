@@ -65,8 +65,14 @@
   Trivia from <a href="https://opentdb.com">Open Trivia Database</a>, licensed
   <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.
 </footer>
+<!--
+  Trivia library (admin): browse categories and clues, import from Open Trivia DB, run Gemini enrichment and
+  review, queue Wikipedia topics, and undo removed clues or categories. Admin calls need the X-Admin-Key header.
+-->
 <script>
   // Admin API calls carry the admin key (needed once the app is public; ignored locally).
+  // fetch() for /api/admin/**: adds the admin key. On a 401 it asks for the key once, keeps it for this browser
+  // session, and retries. Locally (no key configured) the server lets calls through.
   async function adminFetch(url, options = {}) {
     const call = () => {
       let key = '';
@@ -181,6 +187,7 @@
   });
   loadRemovedCats();
 
+  // Wikipedia topic queue and status (WikiController).
   async function loadWiki() {
     const res = await (await adminFetch('/api/admin/wiki/topics')).json();
     const body = document.getElementById('wikiList');
@@ -204,6 +211,7 @@
     if (res.ok) document.getElementById('wikiTopics').value = '';
     loadWiki();
 
+  // Behind-the-scenes review status (ReviewController).
   async function loadReview() {
     const r = await (await adminFetch('/api/admin/review')).json();
     document.getElementById('reviewStatus').textContent = r.enabled

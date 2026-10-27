@@ -20,9 +20,19 @@ import java.util.function.Supplier;
 /**
  * One game room and all of its rules. Pure Java (no Spring, no I/O) so every rule is unit-testable.
  * All public methods are synchronized: the host, board and every player device call in concurrently.
+ *
+ * Where it fits: GameService keeps one Game per room code in memory; GameSocketHandler turns each WebSocket
+ * message into one call here, then sends every screen a fresh {@link #view}. Results go to MySQL only at the end.
+ * Why it matters: this is the whole rule book. Every action checks the current {@link Phase} first
+ * ({@link #require}), which is why an action at the wrong moment fails with "Can't do that during ...".
+ * GameTest covers it without a database; GameWebSocketIT plays it end to end over real sockets.
  */
 public final class Game {
 
+    /**
+     * Board shape and limits, as on the show: 6 categories x 5 clues per round, 12 categories over two rounds,
+     * a random pool of 26 keywords to vote from, and a category needs at least 5 clues to be playable.
+     */
     public static final int ROWS = 5;
     public static final int COLUMNS = 6;
     public static final int BOARD_CATEGORIES = COLUMNS * 2;
@@ -39,6 +49,9 @@ public final class Game {
     /** What kind of screen is asking for the game state. */
     public enum Viewer { HOST, BOARD, PLAYER }
 
+    /**
+     * A team's Final Jeopardy response: a drawing (PNG data URL from the phone's drawing pad) and/or typed text.
+     */
     record FinalAnswer(String drawing, String text) {
     }
 
@@ -106,6 +119,10 @@ public final class Game {
     /** Categories (keywords) the host removed from future games during this game. */
     private final Set<Long> removedKeywords = new HashSet<>();
 
+    /**
+     * Created by GameService. The token supplier and clock are passed in (not created here) so tests can use
+     * fixed values: that is what makes the engine deterministic and unit-testable.
+     */
     public Game(String code, String hostKey, BoardBuilder builder, Supplier<String> tokens, Clock clock) {
         this.code = code;
         this.hostKey = hostKey;
@@ -126,16 +143,25 @@ public final class Game {
     public synchronized Instant lastActivity() { return lastActivity; }
     public synchronized Phase phase() { return phase; }
 
+    /**
+     * Checks the secret host key from the host link. Uses a constant-time comparison (MessageDigest.isEqual)
+     * so the key can't be guessed by timing how long the comparison takes.
+     */
     public boolean isHostKey(String key) {
         return key != null && java.security.MessageDigest.isEqual(hostKey.getBytes(), key.getBytes());
     }
 
+    /** A snapshot copy, so callers can't change the game's team list from outside. */
     public synchronized List<Team> teams() {
         return List.copyOf(teams.values());
     }
 
     // ------------------------------------------------------------------ Teams
 
+    /**
+     * A phone joins the room with a team name and its drawn name tag. Names and drawings are cleaned and size-capped
+     * (user input). Each team gets a random id and a secret token, which the phone stores to reconnect later.
+     */
     public synchronized Team join(String name, String drawing) {
         touch();
         if (phase.compareTo(Phase.FINAL_WAGER) >= 0) {
@@ -153,6 +179,9 @@ public final class Game {
         return team;
     }
 
+    /**
+     * A phone that lost its connection proves it is the same team with the token it saved, and carries on.
+     */
     public synchronized Team rejoin(String teamId, String token) {
         Team team = teams.get(teamId);
         if (team == null || token == null || !team.token().equals(token)) {
@@ -161,6 +190,9 @@ public final class Game {
         return team;
     }
 
+    /**
+     * Host removes a team, cleaning up every place that team could be referenced (votes, lockouts, control, Final).
+     */
     public synchronized void removeTeam(String teamId) {
         touch();
         team(teamId);
@@ -178,11 +210,13 @@ public final class Game {
         revealOrder = revealOrder.stream().filter(id -> !id.equals(teamId)).toList();
     }
 
+    /** Host corrects a score by hand (any phase): the escape hatch for judging mistakes. */
     public synchronized void adjustScore(String teamId, int delta) {
         touch();
         team(teamId).addScore(delta);
     }
 
+    /** Host chooses which team picks the next clue (and so who answers a Daily Double). */
     public synchronized void setControl(String teamId) {
         touch();
         team(teamId);
@@ -194,6 +228,10 @@ public final class Game {
 
     // ------------------------------------------------------------------ Voting
 
+    /**
+     * LOBBY -> VOTING. Loads every keyword with enough clues (from MySQL, through ClueSource) and draws the random
+     * pool of 26 that phones vote on. Fails clearly if the database doesn't have enough trivia yet.
+     */
     public synchronized void startVoting(ClueSource source) {
         touch();
         require(Phase.LOBBY);
@@ -246,11 +284,16 @@ public final class Game {
                 .toList();
     }
 
+    /** Search helper: lower-case, strip accents ('Pokémon' matches 'pokemon') and punctuation. */
     private static String fold(String s) {
         String t = Normalizer.normalize(s == null ? "" : s, Normalizer.Form.NFKD).replaceAll("\\p{M}+", "");
         return t.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", " ").trim();
     }
 
+    /**
+     * A team's board vote: up to 12 keywords. Voting again replaces the team's ballot. A keyword found by search
+     * joins the shared pool so everyone can see it and vote for it too.
+     */
     public synchronized void vote(String teamId, Collection<Long> keywordIds) {
         touch();
         require(Phase.VOTING);
@@ -319,6 +362,7 @@ public final class Game {
         phase = Phase.FINAL_VOTING;
     }
 
+    /** A team's vote for the Final Jeopardy category (one keyword not already on a board). */
     public synchronized void voteFinal(String teamId, long keywordId) {
         touch();
         require(Phase.FINAL_VOTING);
@@ -386,6 +430,10 @@ public final class Game {
 
     // ------------------------------------------------------------------ Board play
 
+    /**
+     * BOARD -> CLUE (or DAILY_DOUBLE_WAGER). The host picks a square; a Daily Double goes to the team in control,
+     * which must wager before seeing the clue.
+     */
     public synchronized void selectCell(int column, int row) {
         touch();
         require(Phase.BOARD);
@@ -439,6 +487,10 @@ public final class Game {
         }
     }
 
+    /**
+     * Host opens the buzzers after reading the clue. Not allowed on a Daily Double (only one team plays it),
+     * after the response is revealed, or while a team is already answering.
+     */
     public synchronized void openBuzzers() {
         touch();
         require(Phase.CLUE);
@@ -494,6 +546,10 @@ public final class Game {
         answeringTeamId = null;
     }
 
+    /**
+     * CLUE -> BOARD. Marks the square used and records it for the host's feedback panel. When every square on the
+     * board is used, moves on to the next round (or Final Jeopardy).
+     */
     public synchronized void returnToBoard() {
         touch();
         require(Phase.CLUE);
@@ -516,6 +572,10 @@ public final class Game {
         advanceRound();
     }
 
+    /**
+     * Jeopardy -> Double Jeopardy (trailing team picks first), or Double Jeopardy -> Final Jeopardy.
+     * Only teams with a positive score play Final; if none, the game ends.
+     */
     private void advanceRound() {
         if (currentBoard.round() == Round.JEOPARDY) {
             currentBoard = doubleJeopardyBoard;
@@ -531,6 +591,9 @@ public final class Game {
 
     // ------------------------------------------------------------------ Final Jeopardy
 
+    /**
+     * FINAL_WAGER -> FINAL_ANSWER. Shows the Final clue; a team that didn't wager is treated as wagering $0.
+     */
     public synchronized void revealFinalClue() {
         touch();
         require(Phase.FINAL_WAGER);
@@ -540,6 +603,9 @@ public final class Game {
         phase = Phase.FINAL_ANSWER;
     }
 
+    /**
+     * A team's written Final response, from the phone's drawing pad. Can be resubmitted until the host locks answers.
+     */
     public synchronized void submitFinalAnswer(String teamId, String drawing, String text) {
         touch();
         require(Phase.FINAL_ANSWER);
@@ -550,6 +616,9 @@ public final class Game {
         finalAnswers.put(teamId, new FinalAnswer(cleanDrawing(drawing), clean(text, MAX_TEXT_LENGTH)));
     }
 
+    /**
+     * FINAL_ANSWER -> FINAL_REVEAL. No more changes; sets the reveal order from lowest score up, as on the show.
+     */
     public synchronized void lockFinalAnswers() {
         touch();
         require(Phase.FINAL_ANSWER);
@@ -561,6 +630,9 @@ public final class Game {
         phase = Phase.FINAL_REVEAL;
     }
 
+    /**
+     * Shows one team's Final answer on the TV board, so the room sees it before the host judges it.
+     */
     public synchronized void spotlight(String teamId) {
         touch();
         require(Phase.FINAL_REVEAL);
@@ -570,6 +642,9 @@ public final class Game {
         spotlightTeamId = teamId;
     }
 
+    /**
+     * Host judges one team's Final answer: adds or subtracts the wager. Each team can only be judged once.
+     */
     public synchronized void judgeFinal(String teamId, boolean correct) {
         touch();
         require(Phase.FINAL_REVEAL);
@@ -611,6 +686,9 @@ public final class Game {
         removedKeywords.add(keywordId);
     }
 
+    /**
+     * True if the clue is on either board or is the Final clue: feedback is only accepted for this game's clues.
+     */
     private boolean containsClue(long clueId) {
         if (finalClue != null && finalClue.id() == clueId) {
             return true;
@@ -673,6 +751,9 @@ public final class Game {
         phase = Phase.GAME_OVER;
     }
 
+    /**
+     * Teams ordered by score, highest first: the GAME_OVER screen and the saved game_result use this.
+     */
     public synchronized List<Team> standings() {
         return teams.values().stream().sorted(Comparator.comparingInt(Team::score).reversed()).toList();
     }
@@ -753,6 +834,9 @@ public final class Game {
         return v;
     }
 
+    /**
+     * Turns keyword options into JSON-ready maps; vote counts only for the host and board, never for phones.
+     */
     private List<Map<String, Object>> keywordViews(List<KeywordOption> options, Map<Long, Integer> votes,
             boolean showVotes) {
         return options.stream().map(k -> {
@@ -767,6 +851,7 @@ public final class Game {
         }).toList();
     }
 
+    /** The grid as screens draw it. Daily Double positions are included only when host is true. */
     private Map<String, Object> boardView(boolean host) {
         Map<String, Object> b = new LinkedHashMap<>();
         b.put("round", currentBoard.round().name());
@@ -788,6 +873,9 @@ public final class Game {
         return b;
     }
 
+    /**
+     * The clue on screen. The correct response is sent to the host always, to others only once revealed.
+     */
     private Map<String, Object> clueView(boolean host) {
         Map<String, Object> c = new LinkedHashMap<>();
         c.put("column", currentCell.column());
@@ -821,6 +909,9 @@ public final class Game {
         return c;
     }
 
+    /**
+     * Final Jeopardy state: category, clue once shown; the board sees an answer only when spotlighted or judged.
+     */
     private Map<String, Object> finalView(Viewer viewer, String viewerTeamId) {
         boolean host = viewer == Viewer.HOST;
         Map<String, Object> f = new LinkedHashMap<>();
@@ -862,6 +953,7 @@ public final class Game {
         return f;
     }
 
+    /** What one phone sees about its own team: score, whether it can buzz, its wager limits. */
     private Map<String, Object> playerView(String teamId) {
         Team t = teams.get(teamId);
         Map<String, Object> me = new LinkedHashMap<>();
@@ -893,10 +985,14 @@ public final class Game {
 
     // ------------------------------------------------------------------ Helpers
 
+    /** True when the clue on screen is a Daily Double (scored by wager, not square value). */
     private boolean isDailyDouble() {
         return currentCell != null && currentCell.dailyDouble();
     }
 
+    /**
+     * Clears everything about the previous clue (buzzers, answering team, lockouts, wager) before the next one.
+     */
     private void resetClueState() {
         currentCell = null;
         buzzersOpen = false;
@@ -908,12 +1004,14 @@ public final class Game {
         lastResult = null;
     }
 
+    /** Counts votes per keyword across all ballots. */
     private Map<Long, Integer> tally(Collection<? extends Collection<Long>> votes) {
         Map<Long, Integer> counts = new HashMap<>();
         votes.forEach(b -> b.forEach(id -> counts.merge(id, 1, Integer::sum)));
         return counts;
     }
 
+    /** Looks up a team or fails with a clear message (guards every team-specific action). */
     private Team team(String teamId) {
         Team team = teamId == null ? null : teams.get(teamId);
         if (team == null) {
@@ -922,16 +1020,22 @@ public final class Game {
         return team;
     }
 
+    /**
+     * The phase guard used by almost every action. Throws GameException ("Can't do that during board"), which
+     * GameSocketHandler sends back to that one screen as an error message. The CI race we fixed showed up as this error.
+     */
     private void require(Phase expected) {
         if (phase != expected) {
             throw new GameException("Can't do that during " + phase.name().replace('_', ' ').toLowerCase());
         }
     }
 
+    /** Records activity, so GameService can clean up rooms nobody has used for a while. */
     private void touch() {
         lastActivity = clock.instant();
     }
 
+    /** Trims and caps user-typed text (team names, Final answers). */
     private static String clean(String s, int max) {
         if (s == null) {
             return "";
@@ -940,6 +1044,7 @@ public final class Game {
         return t.length() <= max ? t : t.substring(0, max);
     }
 
+    /** Accepts only PNG data URLs under the size limit: drawings come from untrusted phones. */
     private static String cleanDrawing(String drawing) {
         if (drawing == null || !drawing.startsWith(PNG_PREFIX) || drawing.length() > MAX_DRAWING_LENGTH) {
             return null;

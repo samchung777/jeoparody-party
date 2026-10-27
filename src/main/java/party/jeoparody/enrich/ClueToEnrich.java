@@ -7,6 +7,7 @@ package party.jeoparody.enrich;
 public record ClueToEnrich(long id, String category, String difficulty, String question, String answer,
         String hostFeedback) {
 
+    /** Convenience constructor for a clue with no host feedback. */
     public ClueToEnrich(long id, String category, String difficulty, String question, String answer) {
         this(id, category, difficulty, question, answer, null);
     }

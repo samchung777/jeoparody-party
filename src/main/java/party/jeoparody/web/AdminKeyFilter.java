@@ -27,15 +27,24 @@ public class AdminKeyFilter extends OncePerRequestFilter {
 
     private final byte[] adminKey;
 
+    /**
+     * Reads app.admin-key: blank locally (admin API open for development); on Cloud Run application-cloud.yml sets it
+     * from ADMIN_KEY, which Cloud Run injects from Secret Manager (admin-key:latest).
+     */
     public AdminKeyFilter(@Value("${app.admin-key:}") String adminKey) {
         this.adminKey = adminKey == null ? new byte[0] : adminKey.strip().getBytes(StandardCharsets.UTF_8);
     }
 
+    /** Skip the check for everything except /api/admin/**, or when no key is configured. */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         return adminKey.length == 0 || !request.getRequestURI().startsWith("/api/admin/");
     }
 
+    /**
+     * Compares keys in constant time (MessageDigest.isEqual) and answers 401 with a JSON message when they differ.
+     * library.html's adminFetch asks for the key once and sends it on every admin call.
+     */
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {

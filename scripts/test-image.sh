@@ -6,6 +6,8 @@
 # nothing depends on published ports or volume mounts: the smoke test is piped into a curl container.
 #
 # Usage: scripts/test-image.sh jeoparody-party:latest
+# Used by: the build-image job, before the image is saved for publishing.
+# Why: tests the artifact itself (the exact image that will ship), not just the code.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

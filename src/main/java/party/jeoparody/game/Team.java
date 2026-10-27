@@ -9,6 +9,9 @@ public final class Team {
     private final String drawing;
     private int score;
 
+    /**
+     * Only Game creates teams (package-private), so scores can only change through the game's rules.
+     */
     Team(String id, String token, String name, String drawing) {
         this.id = id;
         this.token = token;

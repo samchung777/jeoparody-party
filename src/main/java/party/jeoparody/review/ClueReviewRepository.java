@@ -6,6 +6,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * SQL for the review pass. Uses review_version (V7 migration) so a better ReviewPrompt re-reviews every clue.
+ */
 @Repository
 public class ClueReviewRepository {
 
@@ -14,10 +17,12 @@ public class ClueReviewRepository {
 
     private final JdbcTemplate jdbc;
 
+    /** Plain SQL through JdbcTemplate. */
     public ClueReviewRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
+    /** Live, converted clues not yet reviewed with the current ReviewPrompt.VERSION. */
     public List<ClueToReview> findPending(int limit) {
         return jdbc.query("""
                 SELECT cl.id, c.name AS category, cl.jeopardy_clue, cl.jeopardy_response
@@ -32,6 +37,7 @@ public class ClueReviewRepository {
                 ReviewPrompt.VERSION, limit);
     }
 
+    /** How many clues still need review. */
     public long countPending() {
         Long n = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM clue
@@ -40,6 +46,7 @@ public class ClueReviewRepository {
         return n == null ? 0 : n;
     }
 
+    /** How many clues the review pass has retired (still retired now). */
     public long countRetired() {
         Long n = jdbc.queryForObject("""
                 SELECT COUNT(DISTINCT f.clue_id) FROM clue_feedback f JOIN clue cl ON cl.id = f.clue_id
@@ -59,6 +66,7 @@ public class ClueReviewRepository {
         return true;
     }
 
+    /** Stamps the batch with the current prompt version so it isn't reviewed again. */
     public void markReviewed(List<ClueToReview> batch) {
         jdbc.batchUpdate("UPDATE clue SET review_version = ? WHERE id = ?",
                 batch.stream().map(c -> new Object[] {ReviewPrompt.VERSION, c.id()}).toList());

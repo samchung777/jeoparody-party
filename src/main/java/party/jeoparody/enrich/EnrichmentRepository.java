@@ -12,10 +12,15 @@ public class EnrichmentRepository {
 
     private final JdbcTemplate jdbc;
 
+    /** Plain SQL through Spring's JdbcTemplate. */
     public EnrichmentRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
+    /**
+     * Clues not yet at the current prompt version (EnrichmentPrompt.VERSION) that haven't failed too often.
+     * Never-enriched clues come first. Includes the host's feedback note when a host asked for a rewrite.
+     */
     public List<ClueToEnrich> findPending(int limit, int maxAttempts) {
         return jdbc.query("""
                 SELECT cl.id, c.name AS category, cl.difficulty, cl.question, cl.answer, cl.feedback_note
@@ -30,6 +35,7 @@ public class EnrichmentRepository {
                 EnrichmentPrompt.VERSION, maxAttempts, limit);
     }
 
+    /** How many clues are still waiting (shown in status and logs). */
     public long countPending(int maxAttempts) {
         Long n = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM clue WHERE enrich_version < ? AND enrich_attempts < ? AND retired_at IS NULL",
@@ -47,6 +53,10 @@ public class EnrichmentRepository {
                 batch.stream().map(c -> new Object[] {c.id()}).toList());
     }
 
+    /**
+     * Stores Gemini's wording and replaces the clue's keywords, all in one transaction. INSERT IGNORE + the unique
+     * keyword name (case-insensitive) means "Astronomy" and "astronomy" become one keyword.
+     */
     @Transactional
     public void save(EnrichedClue e) {
         jdbc.update("""
@@ -105,10 +115,12 @@ public class EnrichmentRepository {
                 minClues, limit);
     }
 
+    /** Saves the punny board title, capped at the column size (80). */
     public void saveTitle(long keywordId, String title) {
         jdbc.update("UPDATE keyword SET title = ? WHERE id = ?", truncate(title, 80), keywordId);
     }
 
+    /** Caps text to its database column size. */
     private static String truncate(String s, int max) {
         return s.length() <= max ? s : s.substring(0, max);
     }

@@ -27,6 +27,7 @@ public class MediaWikiSource implements WikiSource {
     /** Wikimedia asks API clients to identify themselves with a contact URL. */
     static final String USER_AGENT = "JeoparodyParty/1.0 (https://github.com/samchung777/jeoparody-party)";
 
+    /** Follows redirects (Wikipedia redirects alternative titles to the real article). */
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -34,11 +35,16 @@ public class MediaWikiSource implements WikiSource {
     private final ObjectMapper mapper;
     private final WikiProperties props;
 
+    /** API URL and size limits come from trivia.wiki.* in application.yml. */
     public MediaWikiSource(ObjectMapper mapper, WikiProperties props) {
         this.mapper = mapper;
         this.props = props;
     }
 
+    /**
+     * Exact title first, then search results that really match the query (never a loose hit), then appends the
+     * 'List of ... characters' article when there is one.
+     */
     @Override
     public Optional<WikiPage> fetch(String pageQuery) throws IOException, InterruptedException {
         Optional<WikiPage> main = article(pageQuery);
@@ -89,6 +95,7 @@ public class MediaWikiSource implements WikiSource {
         return parsePage(root, props.maxArticleChars());
     }
 
+    /** Wikipedia search for up to 5 titles, used when the exact title doesn't exist. */
     private List<String> search(String query) throws IOException, InterruptedException {
         JsonNode root = get("action=query&format=json&formatversion=2&list=search&srlimit=5&srsearch=" + encode(query));
         List<String> titles = new ArrayList<>();
@@ -112,6 +119,7 @@ public class MediaWikiSource implements WikiSource {
         return Optional.of(new WikiPage(page.path("pageid").asLong(), title, url, text));
     }
 
+    /** One API call with a descriptive User-Agent, as Wikimedia's API etiquette requires. */
     private JsonNode get(String query) throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder(URI.create(props.apiUrl() + "?" + query))
                 .timeout(Duration.ofSeconds(30))
@@ -125,6 +133,7 @@ public class MediaWikiSource implements WikiSource {
         return mapper.readTree(response.body());
     }
 
+    /** URL-encodes a title for the query string. */
     private static String encode(String s) {
         return URLEncoder.encode(s, StandardCharsets.UTF_8);
     }

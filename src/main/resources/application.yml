@@ -1,25 +1,47 @@
+# Main Spring Boot settings, used everywhere (local, CI, Cloud Run).
+# Values like ${DB_URL:default} read an environment variable and fall back to the default, so one jar
+# can run in every environment: docker-compose locally, the MySQL sidecar in CircleCI, Cloud Run in
+# production (where application-cloud.yml adds Cloud SQL settings on top, via SPRING_PROFILES_ACTIVE=cloud).
 spring:
   application:
+    # Shows up in logs ('[jeoparody-party]') and Actuator.
     name: jeoparody-party
   datasource:
     # Defaults point at the docker-compose MySQL; CI and Cloud Run override via env vars.
     url: ${DB_URL:jdbc:mysql://localhost:3306/jeopardy}
     username: ${DB_USER:jeopardy}
     password: ${DB_PASSWORD:jeopardy}
+  # Run database migrations on start-up (see db/migration). This is how schema changes deploy.
   flyway:
+    # Migrations live in src/main/resources/db/migration and are never edited once released: Flyway
+    # stores each file's checksum in flyway_schema_history and refuses to start if an applied file changes
+    # (that includes comments). A schema change is always a NEW file, e.g. V9__something.sql.
+    #   V1 trivia: category + clue tables (Open Trivia DB questions, de-duplicated by question_hash)
+    #   V2 keywords: Jeopardy wording columns, keyword + clue_keyword (categories are built from keywords)
+    #   V3 pop culture titles: enrich_version (re-tag when the prompt improves), keyword.title (punny names)
+    #   V4 game results: game_result + game_result_team (live games stay in memory; only results are saved)
+    #   V5 clue feedback: retired_at / feedback_note on clue, clue_feedback log (host removes or rewords)
+    #   V6 wiki topics: source_url / source_quote on clue, wiki_topic queue
+    #   V7 story focus: review_version (behind-the-scenes review pass), wiki_topic.prompt_version
+    #   V8 remove categories: keyword.retired_at / retired_note (host removes a whole category)
     enabled: true
 
 server:
   port: ${PORT:8080}   # Cloud Run injects PORT
 
+# Actuator: expose only health and info over HTTP. /actuator/health is what smoke tests check first.
 management:
   endpoints:
     web:
       exposure:
         include: health,info
 
+# App-specific settings, bound to Java classes with @ConfigurationProperties (TriviaProperties,
+# EnrichmentProperties, WikiProperties, review settings).
 trivia:
+  # Open Trivia DB: free public trivia API, the first source of clues.
   base-url: https://opentdb.com
+  # Fetch new questions when the app starts (off in tests and on Cloud Run, which uses the copied database).
   import-on-startup: ${TRIVIA_IMPORT_ON_STARTUP:true}
   questions-per-category: 50          # page size per request (Open Trivia DB max is 50)
   max-questions-per-category: 300     # stop paging a category after this many
@@ -35,6 +57,7 @@ trivia:
     project: ${GOOGLE_CLOUD_PROJECT:jeoparody-party}
     location: ${GEMINI_LOCATION:global}
     model: ${GEMINI_MODEL:gemini-3.5-flash}
+    # Clues sent to Gemini per request, and how many times a clue is retried before it is skipped.
     batch-size: 20
     max-attempts: 3
   wiki:
@@ -43,6 +66,7 @@ trivia:
     enabled: ${TRIVIA_WIKI_ENABLED:true}
     api-url: https://en.wikipedia.org/w/api.php
     seed-on-startup: ${TRIVIA_WIKI_SEED:true}   # queue the starter topics once, on a database with no topics
+    # Target clues per Wikipedia topic, and a cap on article size sent to Gemini (cost and token limit).
     clues-per-topic: 24
     max-article-chars: 60000
     # Topic syntax:  Keyword = Exact Wikipedia page [Group Keyword, ...] {count: note for the writer}

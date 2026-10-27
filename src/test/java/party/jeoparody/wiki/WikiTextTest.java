@@ -6,6 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
+/**
+ * Unit test (Surefire, `*Test`): no database or network, runs in milliseconds in the CircleCI test job.
+ * Checks topic-line parsing (Keyword = Page [Groups] {count: note}), section filtering and text helpers.
+ */
 class WikiTextTest {
 
     @Test

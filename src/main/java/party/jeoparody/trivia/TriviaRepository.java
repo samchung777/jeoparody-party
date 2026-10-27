@@ -16,6 +16,7 @@ public class TriviaRepository {
 
     private final JdbcTemplate jdbc;
 
+    /** Plain SQL through JdbcTemplate. */
     public TriviaRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
@@ -39,6 +40,7 @@ public class TriviaRepository {
         return rows == 1;
     }
 
+    /** Categories with live clue counts per difficulty (library page). */
     public List<Category> listCategories() {
         return jdbc.query("""
                 SELECT c.id, c.name,
@@ -54,6 +56,7 @@ public class TriviaRepository {
                         rs.getInt("easy"), rs.getInt("medium"), rs.getInt("hard")));
     }
 
+    /** A category's clues with their keywords joined into one string, easy first (library page). */
     public List<Clue> findClues(long categoryId, int limit) {
         return jdbc.query("""
                 SELECT cl.id, cl.category_id, cl.difficulty, cl.question, cl.answer,
@@ -96,15 +99,21 @@ public class TriviaRepository {
                 minClues, limit);
     }
 
+    /** Splits the GROUP_CONCAT result back into a list. */
     private static List<String> splitKeywords(String joined) {
         return joined == null || joined.isEmpty() ? List.of() : List.of(joined.split("\\|"));
     }
 
+    /** Total clues; 0 means a fresh database (triggers the start-up import when enabled). */
     public long countClues() {
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM clue", Long.class);
         return count == null ? 0 : count;
     }
 
+    /**
+     * SHA-256 of the normalized question text. The unique key on question_hash is how re-imports skip duplicates,
+     * and why a retired clue can never be re-imported as new.
+     */
     static String hash(String question) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")

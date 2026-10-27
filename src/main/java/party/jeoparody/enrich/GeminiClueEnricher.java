@@ -11,6 +11,9 @@ public class GeminiClueEnricher implements ClueEnricher {
 
     private final GeminiClient gemini;
 
+    /**
+     * The production ClueEnricher: prompt from EnrichmentPrompt, reply validated by EnrichmentPrompt.parse.
+     */
     public GeminiClueEnricher(GeminiClient gemini) {
         this.gemini = gemini;
     }

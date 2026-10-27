@@ -14,6 +14,7 @@ public class GeminiWikiClueGenerator implements WikiClueGenerator {
 
     private final GeminiClient gemini;
 
+    /** Built on the shared GeminiClient; prompt and schema come from WikiCluePrompt. */
     public GeminiWikiClueGenerator(GeminiClient gemini) {
         this.gemini = gemini;
     }

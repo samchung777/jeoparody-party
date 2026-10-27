@@ -1,4 +1,5 @@
 /* Shared look for the board, host and player screens. */
+/* Colour tokens (CSS custom properties) shared by every screen: change the theme in one place. */
 :root {
   --blue: #060ce9;
   --blue-deep: #0a0f8f;
@@ -20,10 +21,12 @@ body {
   color: var(--text);
 }
 a { color: var(--gold); }
+/* Show-style fonts: Impact-like for titles and category names, uppercase serif for clue text. */
 .title-font { font-family: Impact, "Arial Black", "Helvetica Neue", sans-serif; letter-spacing: 1px; }
 .clue-font { font-family: Georgia, "Times New Roman", serif; text-transform: uppercase; }
 .gold { color: var(--gold); }
 .muted { color: var(--muted); }
+/* Pages show and hide sections by phase with this class; !important so it always wins. */
 .hidden { display: none !important; }
 
 button {
@@ -44,6 +47,7 @@ input[type=text], input[type=number], input[type=search] {
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .stack > * + * { margin-top: 12px; }
 
+/* Voting chips: one per keyword; .on marks the ones this phone picked, .votes shows counts on host and board. */
 .chip {
   display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px;
   padding: 10px 12px; border-radius: 10px; border: 2px solid var(--line); background: #141a66;
@@ -58,15 +62,18 @@ input[type=text], input[type=number], input[type=search] {
 
 .team-name-img { background: #fff; border-radius: 6px; display: block; width: 100%; height: auto; }
 
+/* The pop-up used by Jeo.toast for server errors and hints. */
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 1000;
   background: #000c; color: #fff; padding: 12px 18px; border-radius: 10px; max-width: 90vw;
   box-shadow: 0 4px 20px #0008; font-weight: 600;
 }
+/* Connection indicator: red when the WebSocket is down, green when connected. */
 .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: var(--red); }
 .status-dot.on { background: var(--green); }
 
 /* Drawing pad */
+/* Drawing pad (drawpad.js): stretches to the phone's width. */
 .drawpad { width: 100%; max-width: 640px; }
 .drawpad canvas {
   width: 100%; height: auto; aspect-ratio: 2 / 1; background: #fff; border-radius: 10px;

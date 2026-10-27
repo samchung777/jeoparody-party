@@ -32,12 +32,18 @@ import party.jeoparody.trivia.TriviaRepository;
 /**
  * Turns queued topics into clues: fetch the Wikipedia article, have Gemini write clues from it,
  * keep the verifiable ones, store them under the topic's keyword. One topic at a time, in the background.
+ *
+ * Where it fits: topics come from application.yml (trivia.wiki.starter-topics) or the library page; clues land in
+ * the same clue/keyword tables as Open Trivia DB clues, so games use them automatically.
+ * Why it matters: it is the content pipeline that made categories specific (anime, musicals, cartoons). It reads
+ * only story, character and cast sections and keeps a quote per clue, so every clue can be checked.
  */
 @Service
 public class WikiClueService {
 
     private static final Logger log = LoggerFactory.getLogger(WikiClueService.class);
     static final String SOURCE = "wikipedia";
+    /** Gemini retries per topic, and a pause between topics to stay under quota. */
     private static final int MAX_ATTEMPTS = 4;
     private static final long PAUSE_BETWEEN_TOPICS_MS = 2_000;
 
@@ -56,6 +62,10 @@ public class WikiClueService {
         return t;
     });
 
+    /**
+     * WikiSource and WikiClueGenerator are interfaces: tests pass fakes (WikiClueServiceIT), production uses
+     * MediaWikiSource and GeminiWikiClueGenerator.
+     */
     public WikiClueService(WikiSource source, WikiClueGenerator generator, WikiRepository repository,
             TriviaRepository trivia, EnrichmentRepository enrichmentRepository, EnrichmentService enrichment,
             WikiProperties props, EnrichmentProperties geminiProps) {
@@ -114,6 +124,9 @@ public class WikiClueService {
         }
     }
 
+    /**
+     * Identity of a topic line: its Wikipedia page, so editing a starter line's groups or note updates it in place.
+     */
     private static String pageKey(String topic) {
         return WikiText.parseTopic(topic).pageQuery().toLowerCase(Locale.ROOT);
     }
@@ -132,6 +145,7 @@ public class WikiClueService {
         return new ArrayList<>(topics);
     }
 
+    /** Queues one background pass over every queued topic (at most one waiting at a time). */
     public boolean requestRun() {
         if (!enabled()) {
             return false;
@@ -159,6 +173,10 @@ public class WikiClueService {
         }
     }
 
+    /**
+     * One topic: fetch the article, ask Gemini for clues (skipping answers already used for this page), insert the
+     * new ones as already reviewed, save their wording and keywords, and record the outcome on the topic row.
+     */
     void process(WikiRepository.QueuedTopic topic) {
         WikiText.TopicSpec spec = WikiText.parseTopic(topic.topic());
         try {
@@ -191,6 +209,7 @@ public class WikiClueService {
         }
     }
 
+    /** Calls Gemini, backing off (15 s, 30 s, ...) when it is busy, up to MAX_ATTEMPTS. */
     private List<GeneratedClue> generateWithRetry(WikiText.TopicSpec spec, WikiPage page, int count,
             Set<String> existing) throws IOException, InterruptedException {
         String keyword = spec.keyword();
@@ -208,6 +227,7 @@ public class WikiClueService {
         }
     }
 
+    /** Sleep that respects interruption (app shutdown). */
     private static void sleep(long ms) {
         try {
             Thread.sleep(ms);
@@ -216,6 +236,7 @@ public class WikiClueService {
         }
     }
 
+    /** Stops the background thread on shutdown. */
     @PreDestroy
     void shutdown() {
         executor.shutdownNow();

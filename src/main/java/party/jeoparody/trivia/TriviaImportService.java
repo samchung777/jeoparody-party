@@ -23,12 +23,19 @@ import jakarta.annotation.PreDestroy;
  * Pulls questions from Open Trivia DB into MySQL on a background thread.
  * Runs automatically on startup when the clue table is empty (if enabled),
  * or on demand via POST /api/admin/import.
+ *
+ * Where it fits: fills the clue table; when it finishes it calls EnrichmentService, which converts the new clues.
+ * Why it matters: shows polite use of a public API (one request every 5.5 s, session tokens to avoid repeats,
+ * back-off on 429). Off on Cloud Run (TRIVIA_IMPORT_ON_STARTUP=false), where the database was copied up instead.
  */
 @Service
 public class TriviaImportService {
 
     private static final Logger log = LoggerFactory.getLogger(TriviaImportService.class);
     private static final String SOURCE = "opentdb";
+    /**
+     * Smallest page size to ask for, and how many rate-limit retries before giving up on a category.
+     */
     private static final int MIN_BATCH = 10;
     private static final int MAX_ATTEMPTS = 6;
 
@@ -43,6 +50,7 @@ public class TriviaImportService {
         return t;
     });
 
+    /** Dependencies are injected so tests can swap the HTTP client. */
     public TriviaImportService(OpenTdbClient client, TriviaRepository repository, TriviaProperties props,
             EnrichmentService enrichment) {
         this.client = client;
@@ -51,6 +59,9 @@ public class TriviaImportService {
         this.enrichment = enrichment;
     }
 
+    /**
+     * On start-up, import only if enabled and the database has no clues yet (first run of a fresh database).
+     */
     @EventListener(ApplicationReadyEvent.class)
     public void importIfEmpty() {
         if (props.importOnStartup() && repository.countClues() == 0) {
@@ -70,10 +81,14 @@ public class TriviaImportService {
         return true;
     }
 
+    /** Current progress for the admin page. */
     public ImportStatus status() {
         return status.get();
     }
 
+    /**
+     * Background job: category names, a session token, then each category in turn; finally kicks off enrichment.
+     */
     private void runImport(List<Integer> categoryIds) {
         try {
             Map<Integer, String> names = fetchCategoryNames();
@@ -90,6 +105,7 @@ public class TriviaImportService {
         }
     }
 
+    /** Open Trivia DB's category list, for readable names; the import still works without it. */
     private Map<Integer, String> fetchCategoryNames() throws InterruptedException {
         try {
             Map<Integer, String> names = client.fetchCategories();
@@ -101,6 +117,9 @@ public class TriviaImportService {
         }
     }
 
+    /**
+     * A session token makes Open Trivia DB return each question only once, so a whole category can be paged.
+     */
     private String requestToken() throws InterruptedException {
         try {
             String token = client.requestToken();
@@ -176,10 +195,14 @@ public class TriviaImportService {
         }
     }
 
+    /**
+     * Waits trivia.request-delay between calls (Open Trivia DB allows one request per 5 seconds per IP).
+     */
     private void pause() throws InterruptedException {
         Thread.sleep(props.requestDelay().toMillis());
     }
 
+    /** Stops the background thread on shutdown. */
     @PreDestroy
     void shutdown() {
         executor.shutdownNow();
