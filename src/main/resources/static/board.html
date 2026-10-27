@@ -71,6 +71,10 @@
   <div id="scores"></div>
 </div>
 <span id="conn" class="status-dot" title="Connection"></span>
+<!--
+  TV board (board.html?game=CODE): read-only display for the room. Shows votes, the board, clues, Daily Doubles,
+  Final Jeopardy answers when spotlighted, and the winner. It never receives responses before they're revealed.
+-->
 <script src="/js/game.js"></script>
 <script>
   const { esc, money, teamById, teamLabel, playerUrl } = Jeo;
@@ -81,6 +85,7 @@
   if (!code) {
     stage.innerHTML = '<div class="center"><h1 class="logo title-font">JEOPARODY PARTY</h1><p class="big">Open this page from the host screen\'s "Open board" link.</p></div>';
   } else {
+    // Connect as the board: it only receives state, it never sends game actions.
     Jeo.connect(() => `game=${encodeURIComponent(code)}&role=board`, {
       onState: render,
       onStatus: up => document.getElementById('conn').classList.toggle('on', up),
@@ -88,6 +93,7 @@
     });
   }
 
+  // Picks the view for the current phase.
   function render(s) {
     renderScores(s);
     const views = {
@@ -98,6 +104,7 @@
     stage.innerHTML = (views[s.phase] || lobby)(s);
   }
 
+  // Score bar along the bottom; highlights the team that is answering.
   function renderScores(s) {
     const hide = ['LOBBY', 'VOTING', 'FINAL_VOTING', 'GAME_OVER'].includes(s.phase);
     scores.classList.toggle('hidden', hide);

@@ -23,11 +23,13 @@ public class OpenTdbClient {
     private final ObjectMapper mapper;
     private final String baseUrl;
 
+    /** Base URL comes from trivia.base-url, so tests could point it elsewhere. */
     public OpenTdbClient(ObjectMapper mapper, TriviaProperties props) {
         this.mapper = mapper;
         this.baseUrl = props.baseUrl();
     }
 
+    /** GET /api_category.php: category id -> name. */
     public Map<Integer, String> fetchCategories() throws IOException, InterruptedException {
         return OpenTdbParser.parseCategories(get("/api_category.php"));
     }
@@ -41,11 +43,16 @@ public class OpenTdbClient {
         return OpenTdbParser.responseCode(root) == OpenTdbParser.SUCCESS ? root.path("token").asText(null) : null;
     }
 
+    /**
+     * GET /api.php: one page of multiple-choice questions, URL-encoded (encode=url3986) so special characters
+     * arrive intact; OpenTdbParser decodes them.
+     */
     public JsonNode fetchQuestions(int categoryId, int amount, String token) throws IOException, InterruptedException {
         String path = "/api.php?amount=" + amount + "&category=" + categoryId + "&type=multiple&encode=url3986";
         return get(token == null ? path : path + "&token=" + token);
     }
 
+    /** One GET with timeouts and a User-Agent; HTTP 429 becomes a retryable error. */
     private JsonNode get(String path) throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .timeout(Duration.ofSeconds(20))

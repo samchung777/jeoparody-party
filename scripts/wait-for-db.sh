@@ -8,6 +8,8 @@
 #   DB_USER     default root
 #   DB_PASSWORD default rootpw
 #   DB_WAIT_SECONDS  default 90
+# Used by: the test job, before `mvn verify`; the MySQL sidecar needs a few seconds after the job starts.
+# Why: without it, integration tests could fail randomly depending on how fast MySQL starts.
 set -euo pipefail
 
 host="${DB_HOST:-127.0.0.1}"

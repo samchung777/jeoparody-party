@@ -22,6 +22,7 @@ public class WikiRepository {
 
     private final JdbcTemplate jdbc;
 
+    /** Plain SQL through JdbcTemplate against wiki_topic (V6/V7 migrations) and clue. */
     public WikiRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
@@ -37,14 +38,19 @@ public class WikiRepository {
                 """, t);
     }
 
+    /** A topic waiting to be processed. */
     public record QueuedTopic(long id, String topic) {
     }
 
+    /** The oldest queued topic, if any. */
     public Optional<QueuedTopic> nextQueued() {
         return jdbc.query("SELECT id, topic FROM wiki_topic WHERE status = 'queued' ORDER BY id LIMIT 1",
                 (rs, i) -> new QueuedTopic(rs.getLong("id"), rs.getString("topic"))).stream().findFirst();
     }
 
+    /**
+     * Records success: the page used, clue counts, and the prompt version (so a newer prompt can re-queue it).
+     */
     public void markDone(long id, WikiPage page, int generated, int added, int promptVersion) {
         jdbc.update("""
                 UPDATE wiki_topic SET status = 'done', page_title = ?, page_url = ?, clues_generated = ?,
@@ -68,9 +74,11 @@ public class WikiRepository {
         return keys;
     }
 
+    /** Every topic's id and text, for syncing the starter list. */
     public record TopicRow(long id, String topic) {
     }
 
+    /** All topic rows (starter-topic sync on start-up). */
     public List<TopicRow> allTopics() {
         return jdbc.query("SELECT id, topic FROM wiki_topic", (rs, i) -> new TopicRow(rs.getLong("id"), rs.getString("topic")));
     }
@@ -84,16 +92,21 @@ public class WikiRepository {
         }
     }
 
+    /** No Wikipedia article matched the topic. */
     public void markNotFound(long id) {
         jdbc.update("UPDATE wiki_topic SET status = 'not_found', error = 'No matching Wikipedia article' WHERE id = ?", id);
     }
 
+    /**
+     * Stores the error (capped at 500 characters) for the library page; re-queuing the topic retries it.
+     */
     public void markFailed(long id, String error) {
         String e = error == null ? "Unknown error" : error;
         jdbc.update("UPDATE wiki_topic SET status = 'failed', error = ? WHERE id = ?",
                 e.length() <= 500 ? e : e.substring(0, 500), id);
     }
 
+    /** Topics for the library page: queued and failed first, then by most recent. */
     public List<WikiTopic> list(int limit) {
         return jdbc.query("""
                 SELECT id, topic, status, page_title, page_url, clues_generated, clues_added, error, updated_at
@@ -111,6 +124,7 @@ public class WikiRepository {
                 limit);
     }
 
+    /** Number of topics (tests). */
     public int countTopics() {
         Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM wiki_topic", Integer.class);
         return n == null ? 0 : n;
@@ -144,6 +158,7 @@ public class WikiRepository {
         return OptionalLong.of(keys.getKey().longValue());
     }
 
+    /** Caps text to its column size. */
     private static String truncate(String s, int max) {
         return s == null || s.length() <= max ? s : s.substring(0, max);
     }

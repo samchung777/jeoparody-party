@@ -13,6 +13,8 @@
 # (the same rules as the circleci/path-filtering orb)
 #
 # Env: CIRCLE_BRANCH, CIRCLE_CONTINUATION_KEY (set by CircleCI), FORCE_BUILD=true to always build. Without CIRCLE_CONTINUATION_KEY it only prints the plan (dry run).
+# Used by: the plan job in .circleci/config.yml (CircleCI dynamic config).
+# Why: path filtering saves compute on docs-only changes, and the computed CI image tag can't be known in static YAML.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

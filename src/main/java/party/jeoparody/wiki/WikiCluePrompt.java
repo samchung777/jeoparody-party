@@ -27,9 +27,14 @@ public final class WikiCluePrompt {
     private static final Set<String> DIFFICULTIES = Set.of("easy", "medium", "hard");
     private static final Pattern RESPONSE_FORM = Pattern.compile("(?i)^(what|who|where|when|which|how)\\b.*\\?$");
 
+    /** Static helpers only. */
     private WikiCluePrompt() {
     }
 
+    /**
+     * The clue-writing prompt: story, characters and cast only (no production trivia), Jeopardy form, a verbatim
+     * quote from the article as evidence, and answers to avoid because they were already used.
+     */
     public static String build(WikiText.TopicSpec topic, WikiPage page, int count, Set<String> excludedAnswers) {
         String keyword = topic.keyword();
         String focus = topic.focus() == null ? "" : "\nThe host asked for this focus: " + topic.focus() + "\n";
@@ -82,6 +87,9 @@ public final class WikiCluePrompt {
                 """.formatted(keyword, count, focus, avoid, keyword, page.title(), page.text());
     }
 
+    /**
+     * Structured-output schema: an array of clues with clue, response, answer, difficulty, keywords and quote.
+     */
     public static ObjectNode responseSchema(ObjectMapper mapper) {
         ObjectNode schema = mapper.createObjectNode().put("type", "ARRAY");
         ObjectNode item = schema.putObject("items").put("type", "OBJECT");

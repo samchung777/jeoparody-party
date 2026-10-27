@@ -34,11 +34,20 @@ import party.jeoparody.feedback.ClueFeedbackService;
  * </ul>
  * Clients send {@code {"action": "...", ...}}. After every change the server pushes each screen
  * its own filtered view: {@code {"type": "state", "state": {...}}}.
+ *
+ * Where it fits: registered at /ws by WebSocketConfig. Browsers connect as wss:// through Cloud Run's front end
+ * (which is why application-cloud.yml trusts forwarded headers: otherwise Spring's same-origin check rejects them).
+ * Why it matters: it is the only door into a live game. It authenticates the host (host key), routes each action
+ * to Game, and after any change pushes every screen its own filtered state, so phones never see answers.
  */
 @Component
 public class GameSocketHandler extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GameSocketHandler.class);
+    /**
+     * Limits for a slow phone: a send that takes over 5 s, or 4 MB queued, closes that one connection instead of
+     * holding up everyone else (drawings make some messages large).
+     */
     private static final int SEND_TIME_LIMIT_MS = 5_000;
     private static final int SEND_BUFFER_LIMIT = 4 * 1024 * 1024;
 
@@ -49,6 +58,9 @@ public class GameSocketHandler extends TextWebSocketHandler {
         final Game.Viewer viewer;
         volatile String teamId;
 
+        /**
+         * Remembers which game, which kind of screen, and (for phones) which team this socket belongs to.
+         */
         Connection(WebSocketSession session, String code, Game.Viewer viewer, String teamId) {
             this.session = session;
             this.code = code;
@@ -60,14 +72,23 @@ public class GameSocketHandler extends TextWebSocketHandler {
     private final GameService games;
     private final ClueFeedbackService feedback;
     private final ObjectMapper mapper;
+    /**
+     * Every open socket, keyed by session id. Concurrent map: many sockets connect and disconnect at once.
+     */
     private final Map<String, Connection> connections = new ConcurrentHashMap<>();
 
+    /** Spring injects these (constructor injection), which also makes the handler easy to test. */
     public GameSocketHandler(GameService games, ClueFeedbackService feedback, ObjectMapper mapper) {
         this.games = games;
         this.feedback = feedback;
         this.mapper = mapper;
     }
 
+    /**
+     * Runs when a screen connects. Reads game, role (host/board/player) and, for the host, the secret key from the
+     * URL. A wrong code or host key is refused and closed. A phone with a saved teamId and token is reconnected to its
+     * team. The new screen gets the current state straight away.
+     */
     @Override
     public void afterConnectionEstablished(WebSocketSession raw) throws Exception {
         WebSocketSession session = new ConcurrentWebSocketSessionDecorator(raw, SEND_TIME_LIMIT_MS, SEND_BUFFER_LIMIT);
@@ -108,6 +129,11 @@ public class GameSocketHandler extends TextWebSocketHandler {
         sendState(connection, game);
     }
 
+    /**
+     * Runs for every message a screen sends: parse the JSON, route {"action": ...} by role, and if the game changed,
+     * save results when needed (GameService.afterAction) and broadcast. Rule errors (GameException) go back to the
+     * sender only, as {"type":"error"}; the socket stays open.
+     */
     @Override
     protected void handleTextMessage(WebSocketSession raw, TextMessage message) {
         Connection c = connections.get(raw.getId());
@@ -146,6 +172,10 @@ public class GameSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * Every host-only action, mapped to a Game method. Returns true when the game state changed (so screens need an
+     * update); search returns false because only the host sees its results.
+     */
     private boolean hostAction(Game game, String action, JsonNode msg, Connection c) {
         switch (action) {
             case "ping" -> { return false; }
@@ -202,6 +232,10 @@ public class GameSocketHandler extends TextWebSocketHandler {
         return true;
     }
 
+    /**
+     * Every phone action. A phone must join (and get its teamId) before anything else. A buzz only triggers a
+     * broadcast when it won: losing buzzes change nothing.
+     */
     private boolean playerAction(Game game, Connection c, String action, JsonNode msg) {
         if (action.equals("ping")) {
             return false;
@@ -239,11 +273,15 @@ public class GameSocketHandler extends TextWebSocketHandler {
         return true;
     }
 
+    /**
+     * A screen disconnected (closed tab, lost signal). The team stays in the game; the phone can rejoin.
+     */
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         connections.remove(session.getId());
     }
 
+    /** Network-level errors are normal on phones; logged quietly, the close handler cleans up. */
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) {
         log.debug("WebSocket transport error: {}", exception.getMessage());
@@ -258,6 +296,7 @@ public class GameSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    /** Sends one screen its view: Game.view filters by role (host, board or this team). */
     private void sendState(Connection c, Game game) {
         Map<String, Object> envelope = new HashMap<>();
         envelope.put("type", "state");
@@ -265,6 +304,7 @@ public class GameSocketHandler extends TextWebSocketHandler {
         send(c.session, envelope);
     }
 
+    /** Serializes to JSON and sends; a failure to one screen never breaks the action for others. */
     private void send(WebSocketSession session, Map<String, ?> payload) {
         if (!session.isOpen()) {
             return;
@@ -276,6 +316,7 @@ public class GameSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    /** Reads ?game=...&role=...&key=... from the WebSocket URL. */
     private static Map<String, String> queryParams(URI uri) {
         Map<String, String> params = new HashMap<>();
         if (uri != null) {
@@ -285,6 +326,7 @@ public class GameSocketHandler extends TextWebSocketHandler {
         return params;
     }
 
+    /** URL-decodes a query value (team tokens and keys are URL-safe, but be safe). */
     private static String decode(String s) {
         return s == null ? null : java.net.URLDecoder.decode(s, java.nio.charset.StandardCharsets.UTF_8);
     }
@@ -294,6 +336,7 @@ public class GameSocketHandler extends TextWebSocketHandler {
         return connections.size();
     }
 
+    /** Room codes with at least one open screen (diagnostics and tests). */
     Set<String> connectedCodes() {
         Set<String> codes = ConcurrentHashMap.newKeySet();
         connections.values().forEach(c -> codes.add(c.code));

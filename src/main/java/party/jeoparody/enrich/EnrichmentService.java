@@ -21,11 +21,19 @@ import party.jeoparody.review.ClueReviewService;
 /**
  * Background job that sends un-enriched clues to Gemini in batches until none are left.
  * Runs on startup, after every trivia import, and on demand via POST /api/admin/enrich.
+ *
+ * Where it fits: TriviaImportService and host feedback ("reword") call requestRun(); it then calls the review
+ * pass (ClueReviewService). Why it matters: it is the resilience example in the app: one background thread,
+ * batches with pauses to stay under quota, and exponential back-off on rate limits (HTTP 429).
  */
 @Service
 public class EnrichmentService {
 
     private static final Logger log = LoggerFactory.getLogger(EnrichmentService.class);
+    /**
+     * Tuning: how many existing keywords to suggest to Gemini (so it reuses them), the minimum clues before a
+     * keyword gets a title, batch sizes, when to give up, and the back-off range.
+     */
     private static final int KEYWORD_HINTS = 150;
     private static final int MIN_CLUES_FOR_TITLE = 5;
     private static final int TITLE_BATCH = 25;
@@ -39,14 +47,23 @@ public class EnrichmentService {
     private final ClueReviewService review;
     private final EnrichmentRepository repository;
     private final EnrichmentProperties props;
+    /**
+     * Thread-safe flags: at most one extra run is queued, however many times requestRun() is called.
+     */
     private final AtomicBoolean queued = new AtomicBoolean(false);
     private final AtomicReference<EnrichmentStatus> status;
+    /**
+     * A single daemon thread named clue-enrichment: work runs one batch at a time, off the web request threads.
+     */
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "clue-enrichment");
         t.setDaemon(true);
         return t;
     });
 
+    /**
+     * Depends on interfaces (ClueEnricher, CategoryTitler), so tests can pass fakes instead of calling Gemini.
+     */
     public EnrichmentService(ClueEnricher enricher, CategoryTitler titler, EnrichmentRepository repository,
             EnrichmentProperties props, ClueReviewService review) {
         this.review = review;
@@ -57,6 +74,9 @@ public class EnrichmentService {
         this.status = new AtomicReference<>(EnrichmentStatus.initial(props.enabled()));
     }
 
+    /**
+     * Starts a pass once the app is ready (ApplicationReadyEvent); does nothing when trivia.enrichment.enabled is false.
+     */
     @EventListener(ApplicationReadyEvent.class)
     public void onStartup() {
         requestRun();
@@ -76,12 +96,16 @@ public class EnrichmentService {
         return true;
     }
 
+    /** Progress for the admin library page; recounts pending clues when idle. */
     public EnrichmentStatus status() {
         EnrichmentStatus s = status.get();
         return s.running() ? s : new EnrichmentStatus(s.enabled(), false, s.batches(), s.cluesEnriched(),
                 s.cluesSkipped(), repository.countPending(props.maxAttempts()), s.lastError(), s.finishedAt());
     }
 
+    /**
+     * One full pass: enrich clues, delete keywords nothing uses, title new keywords, then trigger the review pass.
+     */
     private void run() {
         queued.set(false);
         enrichClues();
@@ -190,6 +214,9 @@ public class EnrichmentService {
         return Math.min(MAX_BACKOFF_MS, FIRST_BACKOFF_MS << Math.min(failures - 1, 10));
     }
 
+    /**
+     * Stops the background thread when the app shuts down (@PreDestroy), e.g. when Cloud Run replaces an instance.
+     */
     @PreDestroy
     void shutdown() {
         executor.shutdownNow();

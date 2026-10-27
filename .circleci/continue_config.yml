@@ -1,6 +1,9 @@
 # Main pipeline, continued from the setup workflow in config.yml with these parameters:
+# 2.1 enables executors, parameters, `when` conditions and orbs. Only config.yml's `plan` job sends this file
+# to CircleCI (dynamic config), so it never runs on its own.
 version: 2.1
 
+# Pipeline parameters: values passed in by the continuation call. Workflow `when:` conditions and image tags read them.
 parameters:
   app-changed:          # false when only documentation changed (scripts/ci-plan.sh)
     type: boolean
@@ -9,10 +12,12 @@ parameters:
     type: string
     default: ""
 
+# Executors: reusable job environments. All three are Docker executors (fast to start, support sidecars).
 executors:
   base:
     docker:
       - image: cimg/base:current
+    # 2 vCPU / 4 GB: enough for Maven + MySQL; small/medium keep credit use down.
     resource_class: medium
     # Not secrets: IDs the OIDC scripts need. No credentials live in CircleCI: every job that talks to Google
     # exchanges its short-lived CircleCI OIDC token, and Google decides what that job may do.
@@ -27,6 +32,8 @@ executors:
   java-mysql:
     docker:
       - image: us-west1-docker.pkg.dev/jeoparody-party/ci/jeoparody-ci:<< pipeline.parameters.ci-image-tag >>
+      # Secondary container (sidecar): starts with the job, shares its network, gone when the job ends,
+      # so every test run gets a fresh, empty database.
       - image: mysql:8.4
         environment:
           MYSQL_ROOT_PASSWORD: rootpw
@@ -34,17 +41,22 @@ executors:
     environment: *gcp-env
   gcloud:
     docker:
+      # Google's image with gcloud and Python: only the deploy job needs gcloud.
       - image: google/cloud-sdk:slim
     resource_class: small
     environment: *gcp-env
 
+# Jobs run in order set by the workflows at the bottom; each starts in a clean container.
 jobs:
   ci-image:
     description: Build and push the custom CI image, unless an image with this fingerprint already exists
     executor: base
     steps:
       - checkout
+      # A separate Docker engine for this job, so it can `docker build`, `push` and `run` containers.
       - setup_remote_docker
+      # Conditional skip: if the tag already exists, `circleci-agent step halt` ends the job as a success.
+      # The tag only changes when ci/Dockerfile or pom.xml change, so most runs skip the build.
       - run:
           name: Skip if this CI image already exists
           command: |
@@ -52,6 +64,8 @@ jobs:
               echo "$CI_IMAGE already exists: nothing to build"
               circleci-agent step halt
             fi
+      # OIDC: trade this job's CircleCI token for a 15-minute Google token as circleci-ci-image, then log Docker in.
+      # The token goes through a pipe, never into the log.
       - run:
           name: Log in to Artifact Registry (OIDC -> circleci-ci-image)
           command: |
@@ -67,24 +81,32 @@ jobs:
     description: Unit + integration tests in the custom CI image, against the MySQL sidecar
     executor: java-mysql
     steps:
+      # Clone the commit being built into ~/project.
       - checkout
       - run:
           name: Wait for the MySQL sidecar
           command: bash scripts/wait-for-db.sh
+      # mvn verify = compile, unit tests (Surefire), build the jar, integration tests against MySQL (Failsafe).
+      # Any failing test fails the job, and nothing downstream runs (`requires` in the workflow).
       - run:
           name: mvn verify (unit tests, jar, integration tests)
           command: mvn -B verify
       - run:
           name: Drop Failsafe's summary file (not JUnit XML, so CircleCI can't parse it)
+          # Runs even when tests failed, so the failing results still upload.
           when: always
           command: rm -f target/failsafe-reports/failsafe-summary.xml
+      # Upload JUnit XML: per-test results in the Tests tab, Test Insights history, flaky-test detection,
+      # and the timing data that test splitting would use.
       - store_test_results:
           path: target/surefire-reports
       - store_test_results:
           path: target/failsafe-reports
+      # Keep the jar as a downloadable build artifact.
       - store_artifacts:
           path: target/jeoparody-party.jar
           destination: jeoparody-party.jar
+      # Hand the tested jar (and the scripts) to later jobs in this workflow: they never rebuild it.
       - persist_to_workspace:
           root: .
           paths:
@@ -96,6 +118,7 @@ jobs:
     executor: base
     steps:
       - checkout
+      # Bring in the jar the test job saved.
       - attach_workspace:
           at: .
       - setup_remote_docker
@@ -105,6 +128,7 @@ jobs:
       - run:
           name: Test the image (app + MySQL containers, smoke test)
           command: bash scripts/test-image.sh "$APP_IMAGE"
+      # Step-level condition on a pipeline value: feature branches skip saving the image (saves time and storage).
       - when:   # only main deploys, so only main hands the image on
           condition:
             equal: [ main, << pipeline.git.branch >> ]
@@ -132,12 +156,15 @@ jobs:
           command: |
             bash scripts/gcp-oidc-token.sh "circleci-deploy@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
               | docker login -u oauth2accesstoken --password-stdin "https://$REGISTRY"
+      # Push the image as app:<commit SHA>: every revision on Cloud Run maps to exactly one commit.
       - run:
           name: Push the app image
           command: docker push "$APP_IMAGE"
 
   deploy:
     description: Deploy to Cloud Run as a no-traffic candidate, smoke-test it, then shift all traffic to it
+    # Runs only on main with the gcp-deploy context (see workflows), so its OIDC token carries the claims
+    # Google requires for the circleci-deploy service account.
     executor: gcloud
     environment:
       SERVICE: jeoparody-party
@@ -149,6 +176,7 @@ jobs:
           name: Sign gcloud in (OIDC -> circleci-deploy)
           command: bash scripts/gcp-oidc-login.sh "circleci-deploy@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
       - run:
+          # --no-traffic: users stay on the current revision. --tag=candidate: the new revision gets its own URL to test.
           name: Deploy candidate revision (no traffic yet)
           command: |
             gcloud run deploy "$SERVICE" --image="$APP_IMAGE" --region="$REGION" \
@@ -161,6 +189,7 @@ jobs:
             echo "candidate: $url"
             sh scripts/smoke-test.sh "$url"
       - run:
+          # Only reached if the candidate's smoke test passed. Rollback = update-traffic back to the previous revision.
           name: Promote the candidate to 100% of traffic
           command: gcloud run services update-traffic "$SERVICE" --region="$REGION" --to-latest --quiet
       - run:
@@ -175,12 +204,15 @@ jobs:
     steps:
       - run: echo "Only documentation changed, so there is nothing to build, test or deploy."
 
+# Workflows: which jobs run, in what order, and when. Exactly one of these two runs per pipeline.
 workflows:
   build-test-deploy:
+    # Path filtering result from the plan job: runs when anything other than documentation changed.
     when: << pipeline.parameters.app-changed >>
     jobs:
       - ci-image
       - test:
+          # `requires` = run only after the named job succeeded (upstream success).
           requires: [ ci-image ]
       - build-image:
           requires: [ test ]
@@ -199,6 +231,7 @@ workflows:
             branches:
               only: main
 
+  # Documentation-only changes: one tiny job, so the PR still gets a green check for branch protection.
   docs-only:
     when:
       not: << pipeline.parameters.app-changed >>

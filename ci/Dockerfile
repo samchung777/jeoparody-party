@@ -11,8 +11,10 @@
 #
 # Build from the repo root:  docker build -f ci/Dockerfile -t jeoparody-ci .
 
+# CircleCI's convenience image: Java 21 JDK, Maven, git, Docker CLI, and a 'circleci' user; fast to pull on CircleCI.
 FROM cimg/openjdk:21.0
 
+# Installing OS packages needs root; we switch back to the unprivileged 'circleci' user right after.
 USER root
 RUN apt-get update \
  && apt-get install -y --no-install-recommends mysql-client jq \
@@ -21,9 +23,11 @@ USER circleci
 
 # Warm the Maven cache with this project's dependencies and plugins.
 WORKDIR /home/circleci/warmup
+# Only pom.xml is copied (see .dockerignore), so the image depends on the dependency list, not the source code.
 COPY --chown=circleci:circleci pom.xml .
 RUN mvn -B -q dependency:go-offline \
  && mvn -B -q dependency:resolve-plugins \
  && rm -rf /home/circleci/warmup
 
+# CircleCI's default working directory: `checkout` puts the repo here when the test job runs.
 WORKDIR /home/circleci/project

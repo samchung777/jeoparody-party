@@ -13,6 +13,10 @@ import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
+/**
+ * Unit test (Surefire, `*Test`): no database or network, runs in milliseconds in the CircleCI test job.
+ * Uses a seeded Random, so board building, vote ranking and Daily Double placement are repeatable.
+ */
 class BoardBuilderTest {
 
     private final BoardBuilder builder = new BoardBuilder(new Random(7));

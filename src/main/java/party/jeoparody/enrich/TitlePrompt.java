@@ -16,9 +16,13 @@ public final class TitlePrompt {
     static final int MAX_TITLE_LENGTH = 40;
     private static final Pattern SPACES = Pattern.compile("\\s+");
 
+    /** Static helpers only: no instances. */
     private TitlePrompt() {
     }
 
+    /**
+     * Asks Gemini for a witty title per keyword, with sample responses so the pun fits the actual clues.
+     */
     public static String build(ObjectMapper mapper, List<KeywordToTitle> keywords) {
         ArrayNode items = mapper.createArrayNode();
         for (KeywordToTitle k : keywords) {
@@ -49,6 +53,10 @@ public final class TitlePrompt {
                 """.formatted(items.toPrettyString());
     }
 
+    /**
+     * JSON schema Gemini must follow (structured output): an array of {id, title}. This is what makes model output
+     * safe to parse in code.
+     */
     public static ObjectNode responseSchema(ObjectMapper mapper) {
         ObjectNode schema = mapper.createObjectNode().put("type", "ARRAY");
         ObjectNode item = schema.putObject("items").put("type", "OBJECT");

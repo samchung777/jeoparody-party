@@ -9,6 +9,10 @@ import org.junit.jupiter.api.Test;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+/**
+ * Unit test (Surefire, `*Test`): no database or network, runs in milliseconds in the CircleCI test job.
+ * Parses saved Gemini replies (no real API call): skips 'thought' parts, rejects empty replies.
+ */
 class GeminiClientTest {
 
     private final ObjectMapper mapper = new ObjectMapper();

@@ -17,10 +17,17 @@ public class GameRepository implements ClueSource {
 
     private final JdbcTemplate jdbc;
 
+    /**
+     * JdbcTemplate comes from Spring Boot, configured by spring.datasource (local MySQL, CI sidecar or Cloud SQL).
+     */
     public GameRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
+    /**
+     * Keywords that can be a category: at least minClues usable clues (already in Jeopardy form, not retired)
+     * and the keyword itself not removed by a host. One SQL query with GROUP BY / HAVING.
+     */
     @Override
     public List<KeywordOption> eligibleKeywords(int minClues) {
         return jdbc.query("""
@@ -38,6 +45,9 @@ public class GameRepository implements ClueSource {
                 minClues);
     }
 
+    /**
+     * Every usable clue for one keyword; BoardBuilder then picks five by difficulty for a column.
+     */
     @Override
     public List<CandidateClue> cluesForKeyword(long keywordId) {
         return jdbc.query("""
@@ -52,7 +62,11 @@ public class GameRepository implements ClueSource {
                 keywordId);
     }
 
-    /** Records the final standings of a finished game. */
+    /**
+     * Records the final standings of a finished game.
+     *
+     * @Transactional: the result row and its team rows are saved together or not at all.
+     */
     @Transactional
     public long saveResult(Game game) {
         List<Team> standings = game.standings();
@@ -76,6 +90,7 @@ public class GameRepository implements ClueSource {
         return id;
     }
 
+    /** Number of saved games (used by tests). */
     public int countResults() {
         Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM game_result", Integer.class);
         return n == null ? 0 : n;

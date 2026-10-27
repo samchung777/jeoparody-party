@@ -10,6 +10,10 @@ import org.junit.jupiter.api.Test;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+/**
+ * Unit test (Surefire, `*Test`): no database or network, runs in milliseconds in the CircleCI test job.
+ * Checks the Gemini prompt and, more importantly, that bad model output is cleaned or rejected.
+ */
 class EnrichmentPromptTest {
 
     private final ObjectMapper mapper = new ObjectMapper();

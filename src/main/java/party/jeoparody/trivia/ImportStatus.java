@@ -11,10 +11,12 @@ public record ImportStatus(
         String lastError,
         Instant finishedAt) {
 
+    /** Immutable snapshots: each update returns a new record, read safely from web threads. */
     static ImportStatus idle() {
         return new ImportStatus(false, 0, 0, 0, null, null);
     }
 
+    /** State changes used by TriviaImportService: started, categoryDone, withError, finished. */
     static ImportStatus started(int categoriesTotal) {
         return new ImportStatus(true, categoriesTotal, 0, 0, null, null);
     }

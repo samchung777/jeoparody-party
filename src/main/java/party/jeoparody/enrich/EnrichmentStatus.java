@@ -13,10 +13,14 @@ public record EnrichmentStatus(
         String lastError,
         Instant finishedAt) {
 
+    /**
+     * Immutable record: each change returns a new copy, so readers on other threads never see half an update.
+     */
     static EnrichmentStatus initial(boolean enabled) {
         return new EnrichmentStatus(enabled, false, 0, 0, 0, 0, null, null);
     }
 
+    /** State changes used by EnrichmentService: started, batchDone, withError, finished. */
     EnrichmentStatus started(long remaining) {
         return new EnrichmentStatus(enabled, true, 0, 0, 0, remaining, null, null);
     }

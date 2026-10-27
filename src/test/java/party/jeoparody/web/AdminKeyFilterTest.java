@@ -9,6 +9,10 @@ import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
+/**
+ * Unit test (Surefire, `*Test`): no database or network, runs in milliseconds in the CircleCI test job.
+ * The admin key protects /api/admin/** only; game play and pages stay open.
+ */
 class AdminKeyFilterTest {
 
     private MockFilterChain run(String key, String uri, String header) throws Exception {

@@ -20,6 +20,10 @@ import party.jeoparody.enrich.EnrichmentService;
 /**
  * Background pass that has Gemini check live clues and retires the behind-the-scenes ones
  * (directors, release dates, box office...). Runs on startup and after new clues are converted.
+ *
+ * Where it fits: EnrichmentService calls requestRun() after converting clues. Why it matters: play-testing showed
+ * production-trivia clues (directors, box office) were no fun; this is the automated quality gate for content,
+ * using the same single-thread + back-off pattern as enrichment.
  */
 @Service
 public class ClueReviewService {
@@ -40,6 +44,9 @@ public class ClueReviewService {
         return t;
     });
 
+    /**
+     * @Value reads trivia.review.enabled (false in application-test.yml, so tests never call Gemini).
+     */
     public ClueReviewService(ClueReviewer reviewer, ClueReviewRepository repository, EnrichmentProperties gemini,
             @Value("${trivia.review.enabled:true}") boolean enabled) {
         this.reviewer = reviewer;
@@ -48,15 +55,18 @@ public class ClueReviewService {
         this.enabled = enabled;
     }
 
+    /** Runs only if both review and Gemini enrichment are enabled. */
     public boolean enabled() {
         return enabled && gemini.enabled();
     }
 
+    /** Reviews anything pending once the app is ready. */
     @EventListener(ApplicationReadyEvent.class)
     public void onStartup() {
         requestRun();
     }
 
+    /** Queues one background pass (at most one waiting at a time). */
     public boolean requestRun() {
         if (!enabled()) {
             return false;
@@ -70,9 +80,11 @@ public class ClueReviewService {
         return true;
     }
 
+    /** Shown on the library page: clues still to review and how many were retired. */
     public record Status(boolean enabled, long pending, long retired) {
     }
 
+    /** Current counts from the database. */
     public Status status() {
         return new Status(enabled(), repository.countPending(), repository.countRetired());
     }
@@ -122,6 +134,7 @@ public class ClueReviewService {
         log.info("Clue review finished: {} behind-the-scenes clues retired", retired);
     }
 
+    /** Stops the background thread on shutdown. */
     @PreDestroy
     void shutdown() {
         executor.shutdownNow();

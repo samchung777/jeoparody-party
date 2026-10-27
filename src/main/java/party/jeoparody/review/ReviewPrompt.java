@@ -18,9 +18,15 @@ public final class ReviewPrompt {
     public static final int VERSION = 1;
     static final int MAX_REASON = 300;
 
+    /**
+     * Static helpers only; VERSION above is stored in clue.review_version so a better prompt re-reviews old clues.
+     */
     private ReviewPrompt() {
     }
 
+    /**
+     * Asks Gemini to flag clues about production rather than story (directors, release dates, box office, studios).
+     */
     public static String build(ObjectMapper mapper, List<ClueToReview> batch) {
         ArrayNode items = mapper.createArrayNode();
         for (ClueToReview c : batch) {
@@ -53,6 +59,7 @@ public final class ReviewPrompt {
                 """.formatted(items.toPrettyString());
     }
 
+    /** Structured-output schema: for each clue id, offTopic (true/false) and a short reason. */
     public static ObjectNode responseSchema(ObjectMapper mapper) {
         ObjectNode schema = mapper.createObjectNode().put("type", "ARRAY");
         ObjectNode item = schema.putObject("items").put("type", "OBJECT");

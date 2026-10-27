@@ -84,6 +84,11 @@
     </section>
   </div>
 </main>
+<!--
+  Host screen (host.html?game=CODE&key=HOST_KEY): runs the game. Starts and closes votes, picks clues, opens
+  buzzers, judges, adjusts scores, runs Final Jeopardy, flags bad clues, removes categories, plays again.
+  The key in the link is what makes this the host (checked by GameSocketHandler).
+-->
 <script src="/js/game.js"></script>
 <script>
   const { esc, money, teamById, teamLabel, playerUrl } = Jeo;
@@ -101,6 +106,7 @@
       '<span class="warn">Phones can\'t reach "localhost". Open this page using your computer\'s network address (e.g. http://192.168.x.x:8080) so the join link works.</span>');
   }
 
+  // Connect as the host; the server refuses a wrong key with a fatal error.
   const conn = Jeo.connect(() => `game=${encodeURIComponent(code)}&role=host&key=${encodeURIComponent(key)}`, {
     onState: s => { state = s; render(); },
     onMessage: m => {
@@ -135,6 +141,7 @@
   let reviewClueId = null;
   let panelClueId = null;
 
+  // Which clue the feedback panel is about: the clue on screen, or one picked from the post-game review list.
   function feedbackTarget() {
     const s = state;
     if (s.clue && s.clue.clueId != null) return { id: s.clue.clueId, text: s.clue.text, response: s.clue.response, feedback: s.clue.feedback,
@@ -194,6 +201,7 @@
     if (!confirm(`Use "${b.dataset.title}" as the Final Jeopardy category and start the game?`)) return;
     send('setFinalCategory', { keywordId: Number(b.dataset.final) });
   });
+  // During the Final vote the host can type a category instead: search, then setFinalCategory.
   function renderFinalPicker() {
     const visible = state && state.phase === 'FINAL_VOTING';
     document.getElementById('finalPicker').classList.toggle('hidden', !visible);
@@ -208,6 +216,7 @@
       : (q ? '<p class="muted">No categories match that.</p>' : '');
   }
 
+  // 'remove' or 'reword' a clue (ClueFeedbackService); the result shows next to the clue.
   function sendFeedback(feedbackAction) {
     if (panelClueId == null) return;
     if (feedbackAction === 'remove' && !confirm('Remove this clue from all future games?')) return;
@@ -227,6 +236,7 @@
     document.getElementById('feedback').scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
 
+  // One view function per phase (lobby, voting, board, clue, final...), chosen from state.phase.
   function render() {
     renderTeams();
     renderFeedback();
@@ -277,6 +287,7 @@
       <div class="big-actions"><button data-action="${isFinal ? 'closeFinalVoting' : 'closeVoting'}">${isFinal ? 'Lock Final category & start the game' : 'Close voting & build the boards'}</button></div>`;
   }
 
+  // The board as buttons: clicking a square sends selectCell. Only the host sees where Daily Doubles are.
   function grid(clickable) {
     const cats = state.board.categories;
     let html = '<div class="hgrid">' + cats.map(c => `<div class="cat" title="${esc(c.keyword)}">${esc(c.title)}</div>`).join('');

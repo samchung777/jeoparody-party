@@ -1,17 +1,24 @@
 # Local development database only. Passwords here are throwaway dev values.
+# Where it fits: `docker compose up -d` gives you the same MySQL 8.4 the CircleCI test job uses as a sidecar,
+# so integration tests (`mvnw verify`) run the same way on your laptop as in the pipeline.
 services:
   mysql:
+    # Same image and version as the CI sidecar and close to Cloud SQL's MYSQL_8_4.
     image: mysql:8.4
     container_name: jeoparody-mysql
+    # First start creates the 'jeopardy' database and user. Root is used by tests to create 'jeopardy_test'.
     environment:
       MYSQL_DATABASE: jeopardy
       MYSQL_USER: jeopardy
       MYSQL_PASSWORD: jeopardy
       MYSQL_ROOT_PASSWORD: rootpw
     ports:
+      # Publish MySQL on localhost:3306, the default in application.yml and application-test.yml.
       - "3306:3306"
     volumes:
+      # Named volume: your local trivia survives container restarts.
       - mysql-data:/var/lib/mysql
+    # Lets the 'app' service (and you) wait until MySQL actually answers.
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ujeopardy", "-pjeopardy"]
       interval: 5s
@@ -21,6 +28,7 @@ services:
   # Optional: run the packaged app image next to MySQL (build the jar first: .\mvnw.cmd package -DskipTests)
   #   docker compose --profile app up --build
   app:
+    # Only starts with --profile app, so `docker compose up` alone just runs MySQL.
     profiles: ["app"]
     build: .
     image: jeoparody-party:local
@@ -34,6 +42,7 @@ services:
       TRIVIA_IMPORT_ON_STARTUP: "false"
       TRIVIA_ENRICHMENT_ENABLED: "false"   # no Google credentials inside the container
     ports:
+      # The container listens on 8080 (like Cloud Run); published on 8081 so it can run beside `spring-boot:run` on 8080.
       - "8081:8080"
 
 volumes:

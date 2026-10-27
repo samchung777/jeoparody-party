@@ -12,6 +12,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import party.jeoparody.support.IntegrationTest;
 import party.jeoparody.support.TestData;
 
+/**
+ * Integration test (Failsafe, `*IT`): runs against real MySQL (docker-compose locally, the MySQL sidecar in CircleCI).
+ * Checks de-duplication (question_hash), category upserts and the library's counts.
+ */
 class TriviaRepositoryIT extends IntegrationTest {
 
     @Autowired

@@ -2,8 +2,18 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <!--
+      Maven project file: the build recipe for the whole app.
+      Where it fits: `mvn -B verify` reads this file in the CircleCI `test` job (and `mvnw` locally).
+      Why it matters: its contents, together with ci/Dockerfile, are hashed into the CI image tag
+      (scripts/ci-image-tag.sh), so changing a dependency here makes the pipeline rebuild the CI image.
+    -->
     <modelVersion>4.0.0</modelVersion>
 
+    <!--
+      Inherit Spring Boot's tested set of library versions and plugin defaults, so we don't pin
+      every version by hand. It also pre-configures Failsafe to run *IT tests during `mvn verify`.
+    -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
@@ -11,6 +21,7 @@
         <relativePath/>
     </parent>
 
+    <!-- Our project's coordinates. finalName below fixes the jar name the Dockerfiles expect. -->
     <groupId>party.jeoparody</groupId>
     <artifactId>jeoparody-party</artifactId>
     <version>0.1.0-SNAPSHOT</version>
@@ -18,33 +29,44 @@
     <description>Jeopardy-style trivia night: board, host console and player buzzers</description>
 
     <properties>
+        <!-- Java 21 (LTS): the same version is in ci/Dockerfile (cimg/openjdk:21.0) and the app image (temurin 21). -->
         <java.version>21</java.version>
+        <!-- Version of the Cloud SQL Java connector, used by the 'cloud' profile to reach Cloud SQL. -->
         <cloud-sql-socket-factory.version>1.21.2</cloud-sql-socket-factory.version>
     </properties>
 
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <!-- Web server (embedded Tomcat on port 8080), REST controllers, static pages and JSON. -->
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <!-- WebSocket support for /ws: the live channel every game screen uses. -->
             <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <!-- JdbcTemplate + HikariCP connection pool: plain SQL from the *Repository classes. -->
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <!-- Actuator: /actuator/health, which the smoke test checks before anything else. -->
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
+            <!--
+              Flyway runs src/main/resources/db/migration/V*.sql once each, in order, at start-up,
+              so a fresh database (CI sidecar, Cloud SQL) gets its tables automatically.
+            -->
             <artifactId>flyway-core</artifactId>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
+            <!-- MySQL support module that Flyway needs for MySQL 8. -->
             <artifactId>flyway-mysql</artifactId>
         </dependency>
         <!-- Connects to Cloud SQL from Cloud Run with IAM (no IP allow-lists, TLS handled for us).
@@ -64,22 +86,26 @@
         </dependency>
         <dependency>
             <groupId>com.mysql</groupId>
+            <!-- The MySQL JDBC driver. Runtime scope: the code only uses the standard JDBC API. -->
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
         </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <!-- JUnit 5, Mockito, AssertJ and Spring test support. Test scope: never shipped in the jar. -->
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
 
     <build>
+        <!-- Fixed jar name (no version), so Dockerfile, CircleCI workspace paths and store_artifacts can rely on it. -->
         <finalName>jeoparody-party</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
+                <!-- Repackages the jar into an executable fat jar (`java -jar`), with layers the Dockerfile extracts. -->
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
             <!-- Unit tests (*Test.java): no database needed. Reports: target/surefire-reports/*.xml -->
@@ -87,6 +113,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <!-- Keeps CircleCI logs short: each test class's console output goes to a file in the reports folder. -->
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
                 </configuration>
             </plugin>

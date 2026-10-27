@@ -27,9 +27,14 @@ public final class EnrichmentPrompt {
     private static final Pattern SPACES = Pattern.compile("\\s+");
     private static final Pattern KEYWORD_JUNK = Pattern.compile("[^\\p{L}\\p{N} &'\\-]");
 
+    /** Static helpers only: no instances. */
     private EnrichmentPrompt() {
     }
 
+    /**
+     * Writes the prompt: the Jeopardy rules (clue as a statement, response as a question, exactly 3 keywords),
+     * the batch as JSON, and the most-used existing keywords so categories converge instead of multiplying.
+     */
     public static String build(ObjectMapper mapper, List<ClueToEnrich> batch, List<String> existingKeywords) {
         ArrayNode items = mapper.createArrayNode();
         for (ClueToEnrich c : batch) {
@@ -132,6 +137,10 @@ public final class EnrichmentPrompt {
         return "What is " + a + "?";
     }
 
+    /**
+     * Validates the model's keywords: strips odd characters, drops duplicates, overly long ones and any keyword
+     * equal to the answer (a category must not give the answer away).
+     */
     static List<String> cleanKeywords(JsonNode node, String answer) {
         Map<String, String> unique = new LinkedHashMap<>();
         Set<String> banned = Set.of(normalize(answer));
@@ -148,10 +157,12 @@ public final class EnrichmentPrompt {
         return List.copyOf(unique.values());
     }
 
+    /** Collapses whitespace. */
     private static String clean(String s) {
         return s == null ? "" : SPACES.matcher(s).replaceAll(" ").trim();
     }
 
+    /** Case-insensitive comparison key. */
     private static String normalize(String s) {
         return clean(s).toLowerCase(Locale.ROOT);
     }

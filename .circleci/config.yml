@@ -2,8 +2,11 @@
 # tag, and continues the pipeline with .circleci/continue_config.yml, where the real work lives.
 # Logic: scripts/ci-plan.sh. Run "Trigger pipeline" with force-build=true to build regardless of changes.
 version: 2.1
+# Marks this as a setup workflow: it may run one job that hands CircleCI the real config (continue_config.yml)
+# through the continuation API, using the CIRCLE_CONTINUATION_KEY CircleCI gives that job.
 setup: true
 
+# force-build: set it in the CircleCI UI ('Trigger pipeline') to run the full build even for a docs-only change.
 parameters:
   force-build:
     type: boolean
@@ -13,6 +16,7 @@ jobs:
   plan:
     docker:
       - image: cimg/base:current
+    # Smallest container: this job only runs git, jq and curl.
     resource_class: small
     steps:
       - checkout
@@ -21,6 +25,7 @@ jobs:
           environment:
             FORCE_BUILD: << pipeline.parameters.force-build >>
           command: bash scripts/ci-plan.sh
+      # Keep the plan (changed files + chosen parameters) as artifacts, to see why a pipeline did or didn't build.
       - store_artifacts:
           path: /tmp/plan
           destination: plan

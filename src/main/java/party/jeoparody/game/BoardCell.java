@@ -10,6 +10,9 @@ public final class BoardCell {
     private boolean dailyDouble;
     private boolean used;
 
+    /**
+     * Created by BoardBuilder. dailyDouble and used start false and only Game can change them (package-private setters).
+     */
     BoardCell(int column, int row, int value, CandidateClue clue) {
         this.column = column;
         this.row = row;

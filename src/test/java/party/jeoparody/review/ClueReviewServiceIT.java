@@ -17,6 +17,10 @@ import party.jeoparody.feedback.ClueFeedbackService;
 import party.jeoparody.support.IntegrationTest;
 import party.jeoparody.support.TestData;
 
+/**
+ * Integration test (Failsafe, `*IT`): runs against real MySQL (docker-compose locally, the MySQL sidecar in CircleCI).
+ * Uses a fake reviewer instead of Gemini: retired clues are logged and restorable; failures retry later.
+ */
 class ClueReviewServiceIT extends IntegrationTest {
 
     @MockitoBean

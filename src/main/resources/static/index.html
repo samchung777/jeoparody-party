@@ -39,9 +39,14 @@
     Trivia from <a href="https://opentdb.com">Open Trivia Database</a> (CC BY-SA 4.0)
   </footer>
 </main>
+<!--
+  Home page (https://.../). Host: Create a game (POST /api/games) and get the host and board links.
+  Players: type the room code to open play.html. The smoke test checks this page loads.
+-->
 <script src="/js/game.js"></script>
 <script>
   document.getElementById('host').onclick = async () => {
+    // Create a room; the reply holds the room code and the secret host key (only ever sent here).
     const res = await fetch('/api/games', { method: 'POST' });
     if (!res.ok) return Jeo.toast('Could not create a game');
     const { code, hostKey } = await res.json();
@@ -50,6 +55,7 @@
   const go = page => async () => {
     const code = document.getElementById('code').value.trim().toUpperCase();
     if (!code) return Jeo.toast('Enter the room code first');
+    // Check the code exists before sending the player to the game.
     const res = await fetch(`/api/games/${encodeURIComponent(code)}`);
     if (res.ok) location.href = `/${page}.html?game=${encodeURIComponent(code)}`;
     else Jeo.toast('No game with that code');

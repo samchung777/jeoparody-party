@@ -11,6 +11,10 @@ import org.junit.jupiter.api.Test;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+/**
+ * Unit test (Surefire, `*Test`): no database or network, runs in milliseconds in the CircleCI test job.
+ * Parses saved Open Trivia DB responses: decoding, difficulty, category names.
+ */
 class OpenTdbParserTest {
 
     private final ObjectMapper mapper = new ObjectMapper();

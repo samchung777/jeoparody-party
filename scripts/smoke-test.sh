@@ -1,9 +1,11 @@
 #!/bin/sh
-# Smoke-tests a running Jeoparody Party instance: health, home page, game creation, trivia API.
+# Smoke-tests a running Jeoparody Party instance: health, pages, game creation, WebSocket handshake, trivia API.
 # POSIX sh + curl only (jq is optional), so it also runs inside a tiny curl container.
 #
 # Usage: scripts/smoke-test.sh https://jeoparody-party-xyz.a.run.app
 #   SMOKE_WAIT_SECONDS  how long to wait for the app to become healthy (default 120)
+# Used by: test-image.sh (on the built image), and the deploy job (on the candidate revision, then the live URL).
+# Why: one script answers 'does the app really work?' at every stage; a failure stops the release.
 set -eu
 
 BASE_URL="${1:-${BASE_URL:-http://localhost:8080}}"

@@ -11,6 +11,8 @@
 # Prints the token on stdout (pipe it, don't echo it), e.g.:
 #   scripts/gcp-oidc-token.sh circleci-ci-image@jeoparody-party.iam.gserviceaccount.com \
 #     | docker login -u oauth2accesstoken --password-stdin https://us-west1-docker.pkg.dev
+# Used by: ci-image (as circleci-ci-image) and publish (as circleci-deploy), piped into docker login.
+# Needs only curl and jq, so it works in the small cimg/base image.
 set -euo pipefail
 
 sa="${1:?usage: scripts/gcp-oidc-token.sh SERVICE_ACCOUNT_EMAIL}"
