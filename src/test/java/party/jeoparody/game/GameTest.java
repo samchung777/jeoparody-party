@@ -657,4 +657,90 @@ class GameTest {
         assertEquals(keywordId, reviewed.get("keywordId"));
         assertEquals(true, reviewed.get("categoryRemoved"));
     }
+
+    // ------------------------------------------------------------------ themes, genres, staleness, rebound
+
+    @Test
+    void themesNarrowTheCategoriesOnOffer() {
+        assertThrows(GameException.class, () -> game.setTheme("Not A Theme"));
+        game.setTheme("movie night"); // case-insensitive
+        GameException tooFew = assertThrows(GameException.class, () -> game.startVoting(source));
+        assertTrue(tooFew.getMessage().contains("Pick a broader theme"), "30 keywords: only 10 are Movies");
+
+        game.setTheme("Screen Time"); // Movies + TV = 20 keywords
+        game.startVoting(source);
+        assertEquals("Screen Time", view(Game.Viewer.PLAYER).get("theme"));
+        for (Long id : poolIds()) {
+            String genre = source.keywords.get((int) (id - 1)).genres().iterator().next();
+            assertTrue(genre.equals("Movies") || genre.equals("TV"), "keyword " + id + " is " + genre);
+        }
+        assertThrows(GameException.class, () -> game.setTheme("Everything"), "theme is locked once voting starts");
+        assertTrue(game.searchKeywords("keyword 2").stream().noneMatch(h -> h.get("id").equals(2L)),
+                "search stays inside the theme (keyword 2 is Anime & Manga)");
+    }
+
+    @Test
+    void playersCanBrowseTheVoteByGenre() {
+        assertThrows(GameException.class, () -> game.browseGenre("Movies"), "only during a vote");
+        game.startVoting(source);
+        List<Map<String, Object>> genres = (List<Map<String, Object>>) view(Game.Viewer.PLAYER).get("genres");
+        assertEquals(List.of("Movies", "TV", "Anime & Manga"), genres.stream().map(g -> g.get("name")).toList(),
+                "listed in the fixed genre order, empty genres left out");
+        assertEquals(10, genres.get(0).get("count"));
+
+        List<Map<String, Object>> movies = game.browseGenre("Movies");
+        assertEquals(10, movies.size(), "every Movies keyword, not just the random pool");
+        assertTrue(movies.stream().allMatch(m -> ((Long) m.get("id")) % 3 == 0));
+        assertTrue(movies.stream().anyMatch(m -> Boolean.FALSE.equals(m.get("inPool"))));
+        assertThrows(GameException.class, () -> game.browseGenre("Sports"));
+        assertThrows(GameException.class, () -> game.browseGenre(null));
+    }
+
+    @Test
+    void shownCluesAreReportedOnceForStaleness() {
+        playToBoard();
+        assertTrue(game.drainShownClueIds().isEmpty(), "nothing shown yet");
+        int[] cell = findNormalCell();
+        game.selectCell(cell[0], cell[1]);
+        long clueId = (Long) ((Map<String, Object>) view(Game.Viewer.HOST).get("clue")).get("clueId");
+        assertTrue(game.drainShownClueIds().isEmpty(), "counted when the clue is finished, not when picked");
+        game.reveal();
+        game.returnToBoard();
+        assertEquals(List.of(clueId), game.drainShownClueIds());
+        assertTrue(game.drainShownClueIds().isEmpty(), "each clue reported once");
+
+        game.adjustScore(red.id(), 100);
+        game.endRound();
+        game.endRound();
+        game.revealFinalClue();
+        assertEquals(1, game.drainShownClueIds().size(), "the Final clue counts too");
+    }
+
+    @Test
+    void aWrongAnswerReopensTheBuzzersForTheOthersAutomatically() {
+        playToBoard();
+        int[] cell = findNormalCell();
+        game.selectCell(cell[0], cell[1]);
+        game.openBuzzers();
+        game.buzz(red.id());
+        game.judge(false);
+        Map<String, Object> clue = (Map<String, Object>) view(Game.Viewer.BOARD).get("clue");
+        assertEquals(true, clue.get("buzzersOpen"), "no host click needed");
+        assertEquals(true, clue.get("rebound"));
+        assertEquals(true, ((Map<String, Object>) game.view(Game.Viewer.PLAYER, blue.id()).get("me")).get("canBuzz"));
+        assertEquals(false, ((Map<String, Object>) game.view(Game.Viewer.PLAYER, red.id()).get("me")).get("canBuzz"));
+        assertTrue(game.buzz(blue.id()));
+        assertEquals(false, ((Map<String, Object>) view(Game.Viewer.HOST).get("clue")).get("rebound"),
+                "cleared once someone steals");
+    }
+
+    @Test
+    void theThemeCarriesOverToPlayAgainAndCanBeChangedAfterTheGame() {
+        game.setTheme("Screen Time");
+        playToBoard();
+        game.finish();
+        game.setTheme("Everything");
+        game.playAgain(source);
+        assertEquals("Everything", game.themeName());
+    }
 }

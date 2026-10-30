@@ -41,6 +41,7 @@ public final class Game {
     public static final int MIN_DAILY_DOUBLE_WAGER = 5;
     public static final int MAX_TEAMS = 12;
     public static final int MAX_SEARCH_RESULTS = 20;
+    public static final int MAX_BROWSE_RESULTS = 40;
     static final int MAX_NAME_LENGTH = 24;
     static final int MAX_DRAWING_LENGTH = 300_000;
     static final int MAX_TEXT_LENGTH = 120;
@@ -71,6 +72,8 @@ public final class Game {
     private Instant lastActivity;
     private Instant startedAt;
     private int gameNumber = 1;
+    /** The host's theme: narrows which keywords this room offers (Everything by default). */
+    private Themes.Theme theme = Themes.EVERYTHING;
 
     private final Map<String, Team> teams = new LinkedHashMap<>();
     private Phase phase = Phase.LOBBY;
@@ -118,6 +121,10 @@ public final class Game {
     private final Map<Long, String> feedback = new HashMap<>();
     /** Categories (keywords) the host removed from future games during this game. */
     private final Set<Long> removedKeywords = new HashSet<>();
+    /** Clues shown since GameService last asked: their staleness is increased in MySQL. */
+    private final List<Long> newlyShown = new ArrayList<>();
+    /** True after a wrong answer reopened the buzzers for everyone else (shown as "Rebound!"). */
+    private boolean rebound;
 
     /**
      * Created by GameService. The token supplier and clock are passed in (not created here) so tests can use
@@ -226,6 +233,81 @@ public final class Game {
         }
     }
 
+    // ------------------------------------------------------------------ Themes and genres
+
+    /** The current theme's name. */
+    public synchronized String themeName() {
+        return theme.name();
+    }
+
+    /**
+     * Host picks a theme in the lobby (or after a game, for the next one). Only keywords whose genres overlap
+     * the theme are offered in votes, search and genre browsing.
+     */
+    public synchronized void setTheme(String name) {
+        touch();
+        if (phase != Phase.LOBBY && phase != Phase.GAME_OVER) {
+            throw new GameException("Pick a theme before the vote starts");
+        }
+        theme = Themes.find(name).orElseThrow(() -> new GameException("Unknown theme"));
+    }
+
+    /**
+     * Lists every playable keyword in one genre (within the theme), most clues first, so phones can browse the
+     * vote by general category instead of only the random pool. Same shape as search results.
+     */
+    public synchronized List<Map<String, Object>> browseGenre(String genre) {
+        if (phase != Phase.VOTING && phase != Phase.FINAL_VOTING) {
+            throw new GameException("Browsing is only for the category votes");
+        }
+        if (genre == null || !Themes.GENRES.contains(genre)) {
+            throw new GameException("Unknown genre");
+        }
+        boolean finalVote = phase == Phase.FINAL_VOTING;
+        Set<Long> inPool = new HashSet<>();
+        (finalVote ? finalOptions : pool).forEach(k -> inPool.add(k.id()));
+        return eligible.stream()
+                .filter(k -> k.genres().contains(genre))
+                .filter(k -> !finalVote || !boardKeywordIds.contains(k.id()))
+                .sorted(Comparator.comparingInt(KeywordOption::clueCount).reversed()
+                        .thenComparing(KeywordOption::displayTitle))
+                .limit(MAX_BROWSE_RESULTS)
+                .map(k -> keywordHit(k, inPool))
+                .toList();
+    }
+
+    private static Map<String, Object> keywordHit(KeywordOption k, Set<Long> inPool) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", k.id());
+        m.put("title", k.displayTitle());
+        m.put("keyword", k.name());
+        m.put("inPool", inPool.contains(k.id()));
+        return m;
+    }
+
+    /** How many playable keywords each genre has in this room's theme (for the phones' genre buttons). */
+    private List<Map<String, Object>> genreCounts() {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        Themes.GENRES.forEach(g -> counts.put(g, 0));
+        eligible.forEach(k -> k.genres().forEach(g -> counts.computeIfPresent(g, (key, n) -> n + 1)));
+        List<Map<String, Object>> out = new ArrayList<>();
+        counts.forEach((g, n) -> {
+            if (n > 0) {
+                out.add(Map.of("name", g, "count", n));
+            }
+        });
+        return out;
+    }
+
+    /**
+     * The clue ids shown since the last call (each played clue once). GameService saves them as +1 staleness.
+     */
+    public synchronized List<Long> drainShownClueIds() {
+        List<Long> out = List.copyOf(newlyShown);
+        newlyShown.clear();
+        return out;
+    }
+
     // ------------------------------------------------------------------ Voting
 
     /**
@@ -238,10 +320,15 @@ public final class Game {
         if (teams.isEmpty()) {
             throw new GameException("Wait for at least one team to join");
         }
-        List<KeywordOption> available = source.eligibleKeywords(MIN_CLUES_PER_KEYWORD);
+        List<KeywordOption> available = source.eligibleKeywords(MIN_CLUES_PER_KEYWORD).stream()
+                .filter(k -> theme.matches(k.genres()))
+                .toList();
         if (available.size() < BOARD_CATEGORIES + 1) {
-            throw new GameException("Only " + available.size() + " keywords have enough clues; need "
-                    + (BOARD_CATEGORIES + 1) + ". Import more trivia first.");
+            throw new GameException(theme == Themes.EVERYTHING
+                    ? "Only " + available.size() + " keywords have enough clues; need " + (BOARD_CATEGORIES + 1)
+                            + ". Import more trivia first."
+                    : "The " + theme.name() + " theme only has " + available.size() + " categories; need "
+                            + (BOARD_CATEGORIES + 1) + ". Pick a broader theme.");
         }
         eligible = List.copyOf(available);
         pool.clear();
@@ -273,14 +360,7 @@ public final class Game {
                 .sorted(Comparator.comparing((KeywordOption k) -> !fold(k.name()).startsWith(words.get(0)))
                         .thenComparing(Comparator.comparingInt(KeywordOption::clueCount).reversed()))
                 .limit(MAX_SEARCH_RESULTS)
-                .map(k -> {
-                    Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("id", k.id());
-                    m.put("title", k.displayTitle());
-                    m.put("keyword", k.name());
-                    m.put("inPool", inPool.contains(k.id()));
-                    return m;
-                })
+                .map(k -> keywordHit(k, inPool))
                 .toList();
     }
 
@@ -509,6 +589,7 @@ public final class Game {
         }
         answeringTeamId = teamId;
         buzzersOpen = false;
+        rebound = false;
         return true;
     }
 
@@ -532,7 +613,8 @@ public final class Game {
             if (isDailyDouble() || lockedOut.containsAll(teams.keySet())) {
                 revealed = true;
             } else {
-                buzzersOpen = true; // others may now buzz in
+                buzzersOpen = true; // the remaining teams can buzz straight away: no need to reopen by hand
+                rebound = true;
             }
         }
     }
@@ -557,6 +639,7 @@ public final class Game {
         KeywordOption playedKeyword = currentBoard.categories().get(currentCell.column()).keyword();
         played.add(new PlayedClue(currentCell.clue(), playedKeyword.displayTitle(), currentCell.value(),
                 playedKeyword.id(), playedKeyword.name()));
+        newlyShown.add(currentCell.clue().id());
         resetClueState();
         if (currentBoard.allUsed()) {
             advanceRound();
@@ -600,6 +683,7 @@ public final class Game {
         finalEligible.forEach(id -> finalWagers.putIfAbsent(id, 0)); // missing wager counts as $0
         played.add(new PlayedClue(finalClue, "Final Jeopardy: " + finalCategory.displayTitle(), 0,
                 finalCategory.id(), finalCategory.name()));
+        newlyShown.add(finalClue.id());
         phase = Phase.FINAL_ANSWER;
     }
 
@@ -772,6 +856,7 @@ public final class Game {
         v.put("gameNumber", gameNumber);
         v.put("round", currentBoard == null ? null : currentBoard.round().name());
         v.put("controlTeamId", controlTeamId);
+        v.put("theme", theme.name());
 
         List<Map<String, Object>> teamViews = new ArrayList<>();
         for (Team t : teams.values()) {
@@ -791,6 +876,9 @@ public final class Game {
         }
         v.put("teams", teamViews);
 
+        if (phase == Phase.VOTING || phase == Phase.FINAL_VOTING) {
+            v.put("genres", genreCounts());
+        }
         if (phase == Phase.VOTING) {
             v.put("maxVotes", BOARD_CATEGORIES);
             v.put("searchableCount", eligible.size());
@@ -895,6 +983,7 @@ public final class Game {
             c.put("text", currentCell.clue().clue());
         }
         c.put("buzzersOpen", buzzersOpen);
+        c.put("rebound", rebound && buzzersOpen);
         c.put("answeringTeamId", answeringTeamId);
         c.put("lockedOut", List.copyOf(lockedOut));
         c.put("revealed", revealed);
@@ -1002,6 +1091,7 @@ public final class Game {
         dailyDoubleTeamId = null;
         dailyDoubleWager = null;
         lastResult = null;
+        rebound = false;
     }
 
     /** Counts votes per keyword across all ballots. */

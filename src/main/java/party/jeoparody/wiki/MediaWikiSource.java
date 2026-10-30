@@ -25,7 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class MediaWikiSource implements WikiSource {
 
     /** Wikimedia asks API clients to identify themselves with a contact URL. */
-    static final String USER_AGENT = "JeoparodyParty/1.0 (https://github.com/samchung777/jeoparody-party)";
+    public static final String USER_AGENT = "JeoparodyParty/1.0 (https://github.com/samchung777/jeoparody-party)";
 
     /** Follows redirects (Wikipedia redirects alternative titles to the real article). */
     private final HttpClient http = HttpClient.newBuilder()

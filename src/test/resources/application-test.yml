@@ -12,6 +12,8 @@ trivia:
     enabled: false             # never call Gemini from tests
   review:
     enabled: false             # never call Gemini from tests
+  research:
+    enabled: false             # work is queued in tests but never started (tests call it directly)
   wiki:
     enabled: false             # never call Wikipedia from tests
     seed-on-startup: false

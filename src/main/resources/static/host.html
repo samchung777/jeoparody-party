@@ -50,6 +50,14 @@
   </section>
   <div class="stack">
     <section class="panel stack" id="phase"></section>
+    <section class="panel stack hidden" id="themePicker">
+      <h3 style="margin:0">Theme</h3>
+      <p class="muted" style="margin:0">Narrow the categories to a vibe. A theme needs at least 13 categories.</p>
+      <div class="row">
+        <select id="themeSelect" style="padding:10px;border-radius:8px;min-width:260px"></select>
+        <span id="themeStatus" class="gold"></span>
+      </div>
+    </section>
     <section class="panel stack hidden" id="finalPicker">
       <h3 style="margin:0">Or type in the Final Jeopardy category</h3>
       <p class="muted" style="margin:0">Search every category that isn't on a board, then lock it in (overrides the vote).</p>
@@ -80,6 +88,14 @@
         <button class="bad" id="fbRemoveCategory">Remove whole category</button>
         <span class="muted" style="font-size:13px">Takes this category out of future games. Its clues stay available to other categories.</span>
         <span id="fbCategoryStatus" class="gold"></span>
+      </div>
+    </section>
+    <section class="panel stack">
+      <h3 style="margin:0">Suggest a topic</h3>
+      <p class="muted" style="margin:0">Want clues about something new? Suggestions are researched after the game.</p>
+      <div class="row">
+        <input type="text" id="suggestText" maxlength="80" placeholder="e.g. Gravity Falls" style="flex:1;min-width:200px">
+        <button class="secondary" id="suggestSend">Suggest</button>
       </div>
     </section>
   </div>
@@ -114,6 +130,7 @@
         finalResults = m.results;
         renderFinalPicker();
       }
+      if (m.type === 'suggested') Jeo.toast(`Thanks! "${m.topic}" will be researched after the game.`);
     },
     onStatus: up => document.getElementById('conn').classList.toggle('on', up),
     onFatal: msg => { document.getElementById('phase').innerHTML = `<p>${esc(msg)}</p><p><a href="/">Start a new game</a></p>`; }
@@ -135,6 +152,34 @@
     }
     if (b.dataset.confirm && !confirm(b.dataset.confirm)) return;
     send(b.dataset.action, data);
+  });
+
+  // ---- Theme picker (lobby and game over): GET /api/themes lists each theme with its category count.
+  let themes = [];
+  async function loadThemes() {
+    try { themes = await (await fetch('/api/themes')).json(); } catch { themes = []; }
+    renderThemePicker();
+  }
+  function renderThemePicker() {
+    const visible = state && (state.phase === 'LOBBY' || state.phase === 'GAME_OVER');
+    document.getElementById('themePicker').classList.toggle('hidden', !visible);
+    if (!visible) return;
+    const sel = document.getElementById('themeSelect');
+    if (document.activeElement !== sel) {
+      sel.innerHTML = themes.map(t => `<option value="${esc(t.name)}" ${t.playable ? '' : 'disabled'}
+        ${t.name === state.theme ? 'selected' : ''}>${esc(t.name)} · ${t.categories} categories${t.playable ? '' : ' (too few)'}</option>`).join('')
+        || `<option>${esc(state.theme || 'Everything')}</option>`;
+    }
+    const t = themes.find(x => x.name === state.theme);
+    document.getElementById('themeStatus').textContent = t && t.genres.length ? t.genres.join(' · ') : 'Every category';
+  }
+  document.getElementById('themeSelect').addEventListener('change', e => send('setTheme', { theme: e.target.value }));
+  loadThemes();
+
+  // ---- Topic suggestions: saved now, researched (stale categories + suggestions) when the game ends.
+  document.getElementById('suggestSend').addEventListener('click', () => {
+    const input = document.getElementById('suggestText');
+    if (input.value.trim() && send('suggest', { topic: input.value })) input.value = '';
   });
 
   // ---- Clue feedback panel (kept outside #phase so typing isn't wiped by state updates)
@@ -238,6 +283,7 @@
 
   // One view function per phase (lobby, voting, board, clue, final...), chosen from state.phase.
   function render() {
+    renderThemePicker();
     renderTeams();
     renderFeedback();
     renderFinalPicker();
@@ -271,7 +317,8 @@
   function lobby() {
     return `<h2 style="margin:0">Waiting for teams</h2>
       <p>Open the <b>board</b> on the TV, then have each team join on a phone and draw their team name.</p>
-      <p>When everyone's in, start the category vote. Players see a random pool of 26 keywords and vote for up to 12.</p>
+      <p>Pick a theme below if you want one (now <b class="gold">${esc(state.theme || 'Everything')}</b>), then start the category vote.
+         Players see a random pool of 26 categories, can browse by genre (Movies, TV, Anime…) or search, and vote for up to 12.</p>
       <div class="big-actions"><button data-action="startVoting" ${state.teams.length ? '' : 'disabled'}>Start category vote</button></div>`;
   }
 
@@ -282,7 +329,7 @@
     return `<h2 style="margin:0">${isFinal ? 'Final Jeopardy category vote' : 'Board category vote'}</h2>
       <p>${voted.length} of ${state.teams.length} teams voted${voted.length ? ': ' + voted.map(t => esc(t.name)).join(', ') : ''}.
          ${isFinal ? 'The top keyword becomes the Final Jeopardy category.' : `The top 12 become categories, alternating between Jeopardy and Double Jeopardy.
-         Besides these random picks, teams can search all ${state.searchableCount || 0} categories on their phones; anything they vote for joins this list.`}</p>
+         Besides these random picks, teams can browse by genre or search all ${state.searchableCount || 0} categories${state.theme && state.theme !== 'Everything' ? ' in the ' + esc(state.theme) + ' theme' : ''} on their phones; anything they vote for joins this list.`}</p>
       <div class="vote-list">${options.map(o => `<div class="chip"><span>${esc(o.title)}</span><small>${esc(o.keyword)}</small><span class="votes">${o.votes} vote${o.votes === 1 ? '' : 's'}</span></div>`).join('')}</div>
       <div class="big-actions"><button data-action="${isFinal ? 'closeFinalVoting' : 'closeVoting'}">${isFinal ? 'Lock Final category & start the game' : 'Close voting & build the boards'}</button></div>`;
   }
@@ -334,7 +381,7 @@
         <button class="good" data-action="judge" data-correct="true">Correct (+${c.dailyDouble ? c.wager : c.value})</button>
         <button class="bad" data-action="judge" data-correct="false">Incorrect (−${c.dailyDouble ? c.wager : c.value})</button>`;
     } else if (c.buzzersOpen) {
-      actions = `<span class="gold">Buzzers are open…</span><button class="secondary" data-action="reveal">Time's up – reveal</button>`;
+      actions = `<span class="gold">${c.rebound ? 'Wrong! Buzzers reopened for the other teams…' : 'Buzzers are open…'}</span><button class="secondary" data-action="reveal">Time's up – reveal</button>`;
     } else {
       actions = `<button data-action="openBuzzers">Open buzzers</button><button class="secondary" data-action="reveal">Reveal response</button>`;
     }
@@ -396,7 +443,8 @@
     const badge = f => f === 'remove' ? '<b class="gold">Removed</b>' : f === 'reword' ? '<b class="gold">Rewording</b>' : '';
     return `<h2 style="margin:0" class="gold">Game over!</h2>
       <ol>${(state.standings || []).map(t => `<li>${esc(t.name)} – ${money(t.score)}</li>`).join('')}</ol>
-      <p>Results have been saved.</p>
+      <p>Results have been saved. Categories whose clues have all been seen twice, and any topics players suggested,
+         are being researched for new clues in the background.</p>
       <div class="row big-actions">
         <button data-action="playAgain" data-confirm="Start a new game with the same teams? Scores reset to $0.">Play again with the same teams</button>
         <a href="/"><button class="secondary">New room</button></a>

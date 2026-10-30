@@ -4,6 +4,7 @@ import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -31,7 +32,9 @@ public class GameRepository implements ClueSource {
     @Override
     public List<KeywordOption> eligibleKeywords(int minClues) {
         return jdbc.query("""
-                SELECT k.id, k.name, k.title, COUNT(*) AS clue_count
+                SELECT k.id, k.name, k.title, COUNT(*) AS clue_count,
+                       (SELECT GROUP_CONCAT(g.genre SEPARATOR '|') FROM keyword_genre g WHERE g.keyword_id = k.id)
+                           AS genres
                 FROM keyword k
                 JOIN clue_keyword ck ON ck.keyword_id = k.id
                 JOIN clue cl ON cl.id = ck.clue_id
@@ -41,7 +44,7 @@ public class GameRepository implements ClueSource {
                 HAVING COUNT(*) >= ?
                 """,
                 (rs, i) -> new KeywordOption(rs.getLong("id"), rs.getString("name"), rs.getString("title"),
-                        rs.getInt("clue_count")),
+                        rs.getInt("clue_count"), splitGenres(rs.getString("genres"))),
                 minClues);
     }
 
@@ -51,14 +54,14 @@ public class GameRepository implements ClueSource {
     @Override
     public List<CandidateClue> cluesForKeyword(long keywordId) {
         return jdbc.query("""
-                SELECT cl.id, cl.difficulty, cl.jeopardy_clue, cl.jeopardy_response
+                SELECT cl.id, cl.difficulty, cl.jeopardy_clue, cl.jeopardy_response, cl.staleness
                 FROM clue cl
                 JOIN clue_keyword ck ON ck.clue_id = cl.id
                 WHERE ck.keyword_id = ? AND cl.jeopardy_clue IS NOT NULL AND cl.jeopardy_response IS NOT NULL
                   AND cl.retired_at IS NULL
                 """,
                 (rs, i) -> new CandidateClue(rs.getLong("id"), rs.getString("difficulty"),
-                        rs.getString("jeopardy_clue"), rs.getString("jeopardy_response")),
+                        rs.getString("jeopardy_clue"), rs.getString("jeopardy_response"), rs.getInt("staleness")),
                 keywordId);
     }
 
@@ -88,6 +91,19 @@ public class GameRepository implements ClueSource {
                     id, place + 1, t.name(), t.score());
         }
         return id;
+    }
+
+    /** Adds one to the staleness of each clue a game just showed (see Game.drainShownClueIds). */
+    public void markShown(List<Long> clueIds) {
+        if (clueIds.isEmpty()) {
+            return;
+        }
+        jdbc.batchUpdate("UPDATE clue SET staleness = staleness + 1 WHERE id = ?",
+                clueIds.stream().map(id -> new Object[] {id}).toList());
+    }
+
+    private static Set<String> splitGenres(String joined) {
+        return joined == null || joined.isBlank() ? Set.of() : Set.of(joined.split("\\|"));
     }
 
     /** Number of saved games (used by tests). */

@@ -50,6 +50,22 @@
   <table style="margin-top:8px"><thead><tr><th>Topic</th><th>Status</th><th>Wikipedia page</th><th class="n">Clues</th></tr></thead>
     <tbody id="wikiList"><tr><td colspan="4">Loading…</td></tr></tbody></table>
 
+  <h2>Research <small style="font-size:14px;opacity:.7">(stale categories and player suggestions)</small></h2>
+  <p style="opacity:.85;margin-top:0">When a game ends, categories whose clues have all been shown twice are queued
+    for fresh clues (from an allow-listed fan wiki when there is one, otherwise Wikipedia), along with topics players
+    suggested. The work runs in <b id="runsIn">…</b>. Fan wikis allowed: <span id="fanWikis">…</span>.</p>
+  <textarea id="researchTopics" rows="2" style="width:100%;font:inherit;padding:8px;border-radius:6px"
+            placeholder="Topics to research now, e.g. Gravity Falls, Super Powereds"></textarea>
+  <div style="margin-top:8px"><button id="researchBtn">Research these</button>
+    <button id="planBtn" class="secondary">Check for stale categories now</button>
+    <span id="researchMsg" style="margin-left:12px;opacity:.85"></span></div>
+  <table style="margin-top:8px"><thead><tr><th>Topic</th><th>Why</th><th>Status</th><th>Source</th><th class="n">Clues</th></tr></thead>
+    <tbody id="researchList"><tr><td colspan="5">Loading…</td></tr></tbody></table>
+  <h3>Suggestions from games</h3>
+  <div id="suggestions">Loading…</div>
+  <h3>Genres</h3>
+  <div id="genreCounts">Loading…</div>
+
   <h2>Removed categories <small style="font-size:14px;opacity:.7">(hidden from games; clues kept)</small></h2>
   <div id="removedCats">Loading…</div>
 
@@ -212,6 +228,44 @@
     loadWiki();
 
   // Behind-the-scenes review status (ReviewController).
+  // ---- Research: stale categories, suggestions, fan-wiki allow-list (ResearchController)
+  async function loadResearch() {
+    const r = await (await adminFetch('/api/admin/research')).json();
+    document.getElementById('runsIn').textContent = r.runsIn;
+    document.getElementById('fanWikis').textContent = (r.fanWikis.length ? r.fanWikis.join(', ') : 'none listed')
+      + (r.fanWikiProblems.length ? ` (ignored: ${r.fanWikiProblems.join('; ')})` : '');
+    const why = { stale_category: 'all clues seen twice', suggestion: 'suggested in a game', manual: 'added here' };
+    const icon = { queued: '⏳ queued', running: '🔎 running', done: '✅ done', failed: '⚠️ failed', not_found: '❓ not found' };
+    document.getElementById('researchList').innerHTML = r.tasks.length ? r.tasks.map(t => `<tr>
+      <td>${esc(t.topic)}${t.gameCode ? ` <small style="opacity:.7">game ${esc(t.gameCode)}</small>` : ''}</td>
+      <td>${why[t.kind] || esc(t.kind)}</td>
+      <td>${icon[t.status] || esc(t.status)}${t.error ? `<br><small style="opacity:.7">${esc(t.error)}</small>` : ''}</td>
+      <td>${t.sourceUrl ? `<a href="${esc(t.sourceUrl)}" target="_blank" rel="noopener">${esc(t.sources || 'source')}</a>` : esc(t.sources || '')}</td>
+      <td class="n">${t.cluesAdded}</td></tr>`).join('') : '<tr><td colspan="5">Nothing researched yet.</td></tr>';
+    document.getElementById('suggestions').innerHTML = r.suggestions.length ? '<ul>' + r.suggestions.map(x =>
+      `<li>${esc(x.topic)} <small style="opacity:.7">${esc(x.suggestedBy || '')}${x.gameCode ? ' · game ' + esc(x.gameCode) : ''} · ${esc(x.status)}</small></li>`).join('') + '</ul>'
+      : 'No suggestions yet.';
+    const g = Object.entries(r.genres);
+    document.getElementById('genreCounts').textContent = g.length ? g.map(([k, n]) => `${k} ${n}`).join(' · ') : 'Not classified yet.';
+    if (r.tasks.some(t => t.status === 'queued' || t.status === 'running')) setTimeout(loadResearch, 10000);
+  }
+  document.getElementById('researchBtn').addEventListener('click', async () => {
+    const topics = document.getElementById('researchTopics').value;
+    if (!topics.trim()) return;
+    const res = await adminFetch('/api/admin/research/topics', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topics }) });
+    const data = await res.json();
+    document.getElementById('researchMsg').textContent = res.ok ? `Queued; ${data.waiting} waiting (${data.runsIn}).` : data.message;
+    if (res.ok) document.getElementById('researchTopics').value = '';
+    loadResearch();
+  });
+  document.getElementById('planBtn').addEventListener('click', async () => {
+    const data = await (await adminFetch('/api/admin/research', { method: 'POST' })).json();
+    document.getElementById('researchMsg').textContent =
+      `${data.staleCategories} stale categories and ${data.suggestions} suggestions queued; ${data.waiting} waiting.`;
+    loadResearch();
+  });
+
   async function loadReview() {
     const r = await (await adminFetch('/api/admin/review')).json();
     document.getElementById('reviewStatus').textContent = r.enabled
@@ -220,6 +274,7 @@
     if (r.pending > 0) setTimeout(loadReview, 10000);
   }
   loadReview();
+  loadResearch();
   });
   loadWiki();
 

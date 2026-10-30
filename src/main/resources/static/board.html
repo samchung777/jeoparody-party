@@ -123,6 +123,7 @@
       <div class="join-box">On your phone, go to<br><b>${esc(playerUrl(s.code))}</b><div class="code title-font">${esc(s.code)}</div></div>
       <div class="lobby-teams">${s.teams.map(t => `<div class="t">${teamLabel(t, { big: true })}</div>`).join('')}</div>
       <p class="big muted">${s.teams.length ? `${s.teams.length} team${s.teams.length > 1 ? 's' : ''} ready` : 'Waiting for teams…'}</p>
+      ${s.theme && s.theme !== 'Everything' ? `<p class="big gold title-font">TONIGHT'S THEME: ${esc(s.theme.toUpperCase())}</p>` : ''}
     </div>`;
   }
 
@@ -139,7 +140,7 @@
           ${o.votes ? `<div class="n">${o.votes}</div>` : ''}
           <div class="bar" style="width:${100 * (o.votes || 0) / max}%"></div>
         </div>`).join('')}</div>
-      <div class="big muted">${done} of ${s.teams.length} teams have voted${isFinal ? '' : ` · search all ${s.searchableCount || 0} categories on your phone`}</div>
+      <div class="big muted">${done} of ${s.teams.length} teams have voted${isFinal ? '' : ` · browse by genre or search all ${s.searchableCount || 0} categories on your phone`}${s.theme && s.theme !== 'Everything' ? ` · theme: ${esc(s.theme)}` : ''}</div>
     </div>`;
   }
 
@@ -177,7 +178,7 @@
     } else if (answering) {
       status = `<span class="answering">${answering.drawing ? `<img src="${esc(answering.drawing)}" alt="">` : ''}<b>${esc(answering.name)}</b>&nbsp;is answering</span>`;
     } else if (c.buzzersOpen) {
-      status = '<span class="open title-font">BUZZ IN!</span>';
+      status = c.rebound ? '<span class="open title-font">REBOUND! BUZZ IN!</span>' : '<span class="open title-font">BUZZ IN!</span>';
     }
     const label = c.dailyDouble ? `DAILY DOUBLE · WAGER ${money(c.wager)}` : `$${c.value}`;
     return `<div class="overlay">

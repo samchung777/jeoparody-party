@@ -12,8 +12,8 @@ public final class TestData {
 
     private static final AtomicInteger SOURCE_IDS = new AtomicInteger(1000);
     private static final List<String> TABLES = List.of(
-            "game_result_team", "game_result", "clue_feedback", "clue_keyword", "keyword", "clue", "category",
-            "wiki_topic");
+            "game_result_team", "game_result", "clue_feedback", "keyword_genre", "research_task", "topic_suggestion",
+            "clue_keyword", "keyword", "clue", "category", "wiki_topic");
 
     private TestData() {
     }

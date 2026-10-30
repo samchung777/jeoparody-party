@@ -62,7 +62,9 @@ public class TriviaImportService {
     /**
      * On start-up, import only if enabled and the database has no clues yet (first run of a fresh database).
      */
-    @EventListener(ApplicationReadyEvent.class)
+    // Skipped in the research worker (app.startup-jobs=false), which runs each job in order and then exits.
+    @EventListener(value = ApplicationReadyEvent.class,
+            condition = "@environment.getProperty('app.startup-jobs', 'true') == 'true'")
     public void importIfEmpty() {
         if (props.importOnStartup() && repository.countClues() == 0) {
             log.info("No clues in the database yet; importing from Open Trivia DB");

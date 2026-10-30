@@ -133,4 +133,31 @@ class BoardBuilderTest {
         assertEquals(26, new HashSet<>(pool).size());
         assertEquals(3, builder.pickPool(eligible.subList(0, 3), 26).size());
     }
+
+    @Test
+    void theLeastShownCluesAreUsedFirst() {
+        List<CandidateClue> candidates = List.of(
+                new CandidateClue(1, "easy", "shown 3 times", "r", 3),
+                new CandidateClue(2, "easy", "never shown", "r", 0),
+                new CandidateClue(3, "easy", "shown once", "r", 1),
+                new CandidateClue(4, "medium", "m", "r", 2),
+                new CandidateClue(5, "hard", "h1", "r", 5),
+                new CandidateClue(6, "hard", "h2", "r", 0),
+                new CandidateClue(7, "hard", "h3", "r", 1));
+        for (int seed = 0; seed < 20; seed++) {
+            BoardCategory c = new BoardBuilder(new Random(seed))
+                    .buildCategory(keyword, candidates, new HashSet<>(), Round.JEOPARDY, 0).orElseThrow();
+            List<Long> ids = c.cells().stream().map(cell -> cell.clue().id()).toList();
+            assertEquals(List.of(2L, 3L, 4L, 6L, 7L), ids, "the stalest easy (1) and hard (5) clues sit out");
+        }
+    }
+
+    @Test
+    void finalCluePrefersTheLeastShownHardClue() {
+        List<CandidateClue> list = List.of(new CandidateClue(1, "hard", "a", "r", 2),
+                new CandidateClue(2, "hard", "b", "r", 0), new CandidateClue(3, "easy", "c", "r", 0));
+        for (int seed = 0; seed < 20; seed++) {
+            assertEquals(2L, new BoardBuilder(new Random(seed)).pickFinalClue(list, new HashSet<>()).orElseThrow().id());
+        }
+    }
 }

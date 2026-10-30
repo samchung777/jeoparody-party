@@ -76,7 +76,12 @@ public final class BoardBuilder {
                 byDifficulty.computeIfAbsent(c.difficulty(), d -> new ArrayList<>()).add(c);
             }
         }
-        byDifficulty.values().forEach(list -> java.util.Collections.shuffle(list, random));
+        // Random order first, then least-shown clues last (they are taken from the end of each list), so the
+        // freshest clues win and ties are broken randomly.
+        byDifficulty.values().forEach(list -> {
+            java.util.Collections.shuffle(list, random);
+            list.sort(Comparator.comparingInt(CandidateClue::staleness).reversed());
+        });
         if (byDifficulty.values().stream().mapToInt(List::size).sum() < Game.ROWS) {
             return Optional.empty();
         }
@@ -110,12 +115,14 @@ public final class BoardBuilder {
         }
     }
 
-    /** Final Jeopardy should be hard; fall back to medium, then easy. */
+    /** Final Jeopardy should be hard; fall back to medium, then easy. Among those, the least-shown clues. */
     public Optional<CandidateClue> pickFinalClue(List<CandidateClue> candidates, Set<Long> usedClueIds) {
         for (String difficulty : List.of("hard", "medium", "easy")) {
-            List<CandidateClue> options = candidates.stream()
+            List<CandidateClue> unused = candidates.stream()
                     .filter(c -> difficulty.equals(c.difficulty()) && !usedClueIds.contains(c.id()))
                     .toList();
+            int freshest = unused.stream().mapToInt(CandidateClue::staleness).min().orElse(0);
+            List<CandidateClue> options = unused.stream().filter(c -> c.staleness() == freshest).toList();
             if (!options.isEmpty()) {
                 return Optional.of(options.get(random.nextInt(options.size())));
             }

@@ -303,6 +303,31 @@ class GameWebSocketIT {
         assertEquals("Alice", again.path("me").path("name").asText());
     }
 
+    @Test
+    void themesGenreBrowsingAndSuggestionsOverWebSockets() throws Exception {
+        // Themes 1-20 are Movies, 21-30 are TV
+        jdbc.update("INSERT INTO keyword_genre (keyword_id, genre, source) SELECT id, IF(CAST(SUBSTRING(name, 7) AS UNSIGNED) <= 20, 'Movies', 'TV'), 'rule' FROM keyword");
+        JsonNode created = createGame();
+        String code = created.path("code").asText();
+        Screen host = connect("game=" + code + "&role=host&key=" + created.path("hostKey").asText());
+        Screen alice = connect("game=" + code + "&role=player");
+        alice.send("join", Map.of("name", "Alice"));
+        alice.awaitMessage("joined");
+
+        alice.send("suggest", Map.of("topic", "  Gravity   Falls "));
+        assertEquals("Gravity Falls", alice.awaitMessage("suggested").path("topic").asText());
+        assertEquals("Gravity Falls", jdbc.queryForObject("SELECT topic FROM topic_suggestion", String.class));
+
+        host.send("setTheme", Map.of("theme", "Movie Night"));
+        host.awaitState(s -> "Movie Night".equals(s.path("theme").asText()));
+        host.send("startVoting");
+        JsonNode voting = alice.awaitPhase("VOTING");
+        assertEquals(1, voting.path("genres").size(), "only Movies is on offer");
+        alice.send("browse", Map.of("genre", "Movies"));
+        JsonNode results = alice.awaitMessage("browseResults").path("results");
+        assertEquals(20, results.size(), "every Movies category, not just the random pool");
+    }
+
     /**
      * Waits until the host's view has counted this many Final Jeopardy votes. Each screen has its own socket,
      * so without this the host's closeFinalVoting can overtake a player's vote, which then arrives during

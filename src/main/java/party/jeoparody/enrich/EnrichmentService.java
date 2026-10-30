@@ -16,6 +16,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PreDestroy;
+import party.jeoparody.genre.GenreService;
 import party.jeoparody.review.ClueReviewService;
 
 /**
@@ -36,6 +37,8 @@ public class EnrichmentService {
      */
     private static final int KEYWORD_HINTS = 150;
     private static final int MIN_CLUES_FOR_TITLE = 5;
+    /** Same bar for asking Gemini about a keyword's genre: only keywords that can fill a board column. */
+    public static final int MIN_CLUES_FOR_GENRE = MIN_CLUES_FOR_TITLE;
     private static final int TITLE_BATCH = 25;
     private static final int MAX_CONSECUTIVE_FAILURES = 8;
     private static final long PAUSE_BETWEEN_BATCHES_MS = 2_000;
@@ -45,6 +48,7 @@ public class EnrichmentService {
     private final ClueEnricher enricher;
     private final CategoryTitler titler;
     private final ClueReviewService review;
+    private final GenreService genres;
     private final EnrichmentRepository repository;
     private final EnrichmentProperties props;
     /**
@@ -65,8 +69,9 @@ public class EnrichmentService {
      * Depends on interfaces (ClueEnricher, CategoryTitler), so tests can pass fakes instead of calling Gemini.
      */
     public EnrichmentService(ClueEnricher enricher, CategoryTitler titler, EnrichmentRepository repository,
-            EnrichmentProperties props, ClueReviewService review) {
+            EnrichmentProperties props, ClueReviewService review, GenreService genres) {
         this.review = review;
+        this.genres = genres;
         this.enricher = enricher;
         this.titler = titler;
         this.repository = repository;
@@ -77,7 +82,9 @@ public class EnrichmentService {
     /**
      * Starts a pass once the app is ready (ApplicationReadyEvent); does nothing when trivia.enrichment.enabled is false.
      */
-    @EventListener(ApplicationReadyEvent.class)
+    // Skipped in the research worker (app.startup-jobs=false), which runs each job in order and then exits.
+    @EventListener(value = ApplicationReadyEvent.class,
+            condition = "@environment.getProperty('app.startup-jobs', 'true') == 'true'")
     public void onStartup() {
         requestRun();
     }
@@ -114,7 +121,33 @@ public class EnrichmentService {
             log.info("Removed {} keywords no longer used by any clue", removed);
         }
         titleKeywords();
+        classifyGenres();
         review.requestRun(); // newly converted clues get the behind-the-scenes check
+    }
+
+    /**
+     * Runs a full pass on the calling thread and returns when it's done. The research worker (a Cloud Run Job)
+     * uses this, because it exits as soon as its work is finished.
+     */
+    public void runNow() {
+        if (props.enabled()) {
+            enrichClues();
+            repository.deleteUnusedKeywords();
+            titleKeywords();
+        }
+        classifyGenres();
+    }
+
+    /** Phase 3: general categories (Movies, TV, ...) for new keywords, so themes can offer them. */
+    private void classifyGenres() {
+        try {
+            int n = genres.classifyPending();
+            if (n > 0) {
+                log.info("Classified {} keywords into genres", n);
+            }
+        } catch (RuntimeException e) {
+            log.warn("Genre classification failed: {}", e.getMessage());
+        }
     }
 
     /** Phase 1: Jeopardy wording + keywords for clues not yet at the current prompt version. */

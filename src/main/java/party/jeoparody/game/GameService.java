@@ -5,6 +5,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
@@ -15,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import party.jeoparody.research.ResearchPlanner;
 
 /**
  * Keeps live games in memory (the app runs as a single Cloud Run instance) and
@@ -44,11 +46,13 @@ public class GameService {
     private final Map<String, Game> games = new ConcurrentHashMap<>();
     private final Set<String> savedResults = ConcurrentHashMap.newKeySet();
     private final GameRepository repository;
+    private final ResearchPlanner research;
     private final Clock clock = Clock.systemUTC();
 
     /** The repository is the ClueSource (clues from MySQL) and saves finished results. */
-    public GameService(GameRepository repository) {
+    public GameService(GameRepository repository, ResearchPlanner research) {
         this.repository = repository;
+        this.research = research;
     }
 
     /**
@@ -80,11 +84,21 @@ public class GameService {
 
     /** Called after every successful action; saves the result the first time a game reaches GAME_OVER. */
     public void afterAction(Game game) {
+        List<Long> shown = game.drainShownClueIds();
+        if (!shown.isEmpty()) {
+            try {
+                repository.markShown(shown); // staleness +1: future boards prefer fresher clues
+            } catch (RuntimeException e) {
+                log.warn("Could not record staleness for game {}: {}", game.code(), e.getMessage());
+            }
+        }
         String resultKey = game.code() + "#" + game.gameNumber(); // a room can play several games in a row
         if (game.phase() == Phase.GAME_OVER && savedResults.add(resultKey)) {
             try {
                 long id = repository.saveResult(game);
                 log.info("Saved result {} for game {}", id, game.code());
+                // Look for stale categories and new suggestions; slow research runs in a separate worker.
+                research.afterGame(game.code());
             } catch (RuntimeException e) {
                 savedResults.remove(resultKey);
                 log.warn("Could not save result for game {}: {}", game.code(), e.getMessage());
