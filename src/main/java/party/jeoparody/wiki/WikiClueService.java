@@ -88,7 +88,9 @@ public class WikiClueService {
      * On startup: sync the starter topic list (new topics are queued, changed ones updated), re-queue topics
      * written with an older prompt, and resume anything still queued.
      */
-    @EventListener(ApplicationReadyEvent.class)
+    // Skipped in the research worker (app.startup-jobs=false), which runs each job in order and then exits.
+    @EventListener(value = ApplicationReadyEvent.class,
+            condition = "@environment.getProperty('app.startup-jobs', 'true') == 'true'")
     public void onStartup() {
         if (!enabled()) {
             return;

@@ -61,7 +61,9 @@ public class ClueReviewService {
     }
 
     /** Reviews anything pending once the app is ready. */
-    @EventListener(ApplicationReadyEvent.class)
+    // Skipped in the research worker (app.startup-jobs=false), which runs each job in order and then exits.
+    @EventListener(value = ApplicationReadyEvent.class,
+            condition = "@environment.getProperty('app.startup-jobs', 'true') == 'true'")
     public void onStartup() {
         requestRun();
     }

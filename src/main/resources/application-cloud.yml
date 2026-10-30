@@ -13,6 +13,8 @@ spring:
       maximum-pool-size: 5    # the smallest Cloud SQL tier allows few connections
 
 trivia:
+  research:
+    mode: ${RESEARCH_MODE:job}   # research runs in the separate Cloud Run Job, never slowing a live game
   # The production database is seeded from a copy of the local one, so don't re-import on start-up.
   import-on-startup: ${TRIVIA_IMPORT_ON_STARTUP:false}
   wiki:

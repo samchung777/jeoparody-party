@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** In-memory trivia for game tests: N keywords, each with 2 easy, 2 medium and 3 hard clues. */
 final class FakeClueSource implements ClueSource {
@@ -14,7 +15,9 @@ final class FakeClueSource implements ClueSource {
     FakeClueSource(int keywordCount) {
         long clueId = 1;
         for (long k = 1; k <= keywordCount; k++) {
-            keywords.add(new KeywordOption(k, "Keyword " + k, k % 3 == 0 ? null : "Punny Title " + k, 7));
+            // Genres rotate Movies / TV / Anime & Manga so theme and browse tests have known counts.
+            String genre = List.of("Movies", "TV", "Anime & Manga").get((int) (k % 3));
+            keywords.add(new KeywordOption(k, "Keyword " + k, k % 3 == 0 ? null : "Punny Title " + k, 7, Set.of(genre)));
             List<CandidateClue> list = new ArrayList<>();
             for (String difficulty : List.of("easy", "easy", "medium", "medium", "hard", "hard", "hard")) {
                 list.add(new CandidateClue(clueId, difficulty, "Clue text " + clueId, "What is " + clueId + "?"));

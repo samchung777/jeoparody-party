@@ -24,6 +24,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import party.jeoparody.feedback.ClueFeedbackService;
+import party.jeoparody.research.SuggestionService;
 
 /**
  * One WebSocket endpoint (/ws) for every screen. Connect with:
@@ -71,6 +72,7 @@ public class GameSocketHandler extends TextWebSocketHandler {
 
     private final GameService games;
     private final ClueFeedbackService feedback;
+    private final SuggestionService suggestions;
     private final ObjectMapper mapper;
     /**
      * Every open socket, keyed by session id. Concurrent map: many sockets connect and disconnect at once.
@@ -78,9 +80,11 @@ public class GameSocketHandler extends TextWebSocketHandler {
     private final Map<String, Connection> connections = new ConcurrentHashMap<>();
 
     /** Spring injects these (constructor injection), which also makes the handler easy to test. */
-    public GameSocketHandler(GameService games, ClueFeedbackService feedback, ObjectMapper mapper) {
+    public GameSocketHandler(GameService games, ClueFeedbackService feedback, SuggestionService suggestions,
+            ObjectMapper mapper) {
         this.games = games;
         this.feedback = feedback;
+        this.suggestions = suggestions;
         this.mapper = mapper;
     }
 
@@ -185,6 +189,17 @@ public class GameSocketHandler extends TextWebSocketHandler {
                 send(c.session, Map.of("type", "searchResults", "query", query, "results", game.searchKeywords(query)));
                 return false;
             }
+            case "browse" -> {
+                // Genre browsing for the Final category: results go to the host screen only.
+                String genre = msg.path("genre").asText("");
+                send(c.session, Map.of("type", "browseResults", "genre", genre, "results", game.browseGenre(genre)));
+                return false;
+            }
+            case "suggest" -> {
+                suggest(game, c, msg, "host", "Host");
+                return false;
+            }
+            case "setTheme" -> game.setTheme(msg.path("theme").asText(""));
             case "setFinalCategory" -> game.closeFinalVoting(games.clueSource(), msg.path("keywordId").asLong(-1));
             case "removeCategory" -> {
                 long keywordId = msg.path("keywordId").asLong(-1);
@@ -246,6 +261,18 @@ public class GameSocketHandler extends TextWebSocketHandler {
             send(c.session, Map.of("type", "searchResults", "query", query, "results", game.searchKeywords(query)));
             return false;
         }
+        if (action.equals("browse")) {
+            // Genre browsing: only this phone gets the list.
+            String genre = msg.path("genre").asText("");
+            send(c.session, Map.of("type", "browseResults", "genre", genre, "results", game.browseGenre(genre)));
+            return false;
+        }
+        if (action.equals("suggest")) {
+            String name = c.teamId == null ? "Player" : game.teams().stream().filter(t -> t.id().equals(c.teamId))
+                    .map(Team::name).findFirst().orElse("Player");
+            suggest(game, c, msg, c.teamId == null ? c.session.getId() : c.teamId, name);
+            return false;
+        }
         if (action.equals("join")) {
             Team team = game.join(msg.path("name").asText(""), msg.path("drawing").asText(null));
             c.teamId = team.id();
@@ -285,6 +312,15 @@ public class GameSocketHandler extends TextWebSocketHandler {
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) {
         log.debug("WebSocket transport error: {}", exception.getMessage());
+    }
+
+    /**
+     * Saves a topic suggestion (cleaned and rate-limited by SuggestionService) and confirms it to the sender only.
+     * It is researched when the game ends.
+     */
+    private void suggest(Game game, Connection c, JsonNode msg, String who, String name) {
+        String topic = suggestions.submit(msg.path("topic").asText(""), game.code(), game.gameNumber(), who, name);
+        send(c.session, Map.of("type", "suggested", "topic", topic));
     }
 
     /** Pushes every connected screen of this game its own view of the new state. */

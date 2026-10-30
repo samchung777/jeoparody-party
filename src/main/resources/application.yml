@@ -29,6 +29,11 @@ spring:
 server:
   port: ${PORT:8080}   # Cloud Run injects PORT
 
+app:
+  # Background content jobs at start-up (import, enrichment, review, Wikipedia, genres). The research worker
+  # sets this to false and runs them itself, in order, before exiting.
+  startup-jobs: ${APP_STARTUP_JOBS:true}
+
 # Actuator: expose only health and info over HTTP. /actuator/health is what smoke tests check first.
 management:
   endpoints:
@@ -60,6 +65,22 @@ trivia:
     # Clues sent to Gemini per request, and how many times a clue is retried before it is skipped.
     batch-size: 20
     max-attempts: 3
+  research:
+    # More clues for stale categories (every clue shown 2+ times) and for topics players suggest.
+    # Planned when a game ends; the slow part (wikis + Gemini) runs in a worker (see ResearchPlanner).
+    enabled: ${TRIVIA_RESEARCH_ENABLED:true}
+    mode: ${RESEARCH_MODE:local}           # local = background thread here; job = separate Cloud Run Job
+    worker: ${RESEARCH_WORKER:false}        # true only inside the Cloud Run Job: do the work, then exit
+    job-name: ${RESEARCH_JOB:jeoparody-research}
+    region: ${RESEARCH_REGION:us-west1}
+    project: ${GOOGLE_CLOUD_PROJECT:jeoparody-party}
+    stale-threshold: 2                       # a category is stale once every clue has been shown twice
+    clues-per-task: 20
+    cooldown: 3d                             # don't re-research the same category within 3 days
+    # Fan wikis that may be read, per keyword: "Keyword, Other Keyword = https://wiki.example.org/w/api.php".
+    # Only independent MediaWiki fan wikis whose terms allow automated access and reuse belong here.
+    # Fandom (fandom.com, wikia.com, wikia.org) is blocked: its terms forbid scraping and feeding content to AI.
+    fan-wikis: []
   wiki:
     # Writes specific categories ("Fire Emblem", "Hamilton") from Wikipedia articles with Gemini.
     # Only clues whose quoted evidence appears in the article are kept.
