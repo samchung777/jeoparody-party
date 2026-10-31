@@ -72,6 +72,7 @@
 
   <section id="finalAnswer" class="stack hidden">
     <h2>Final Jeopardy</h2>
+    <div id="finalTags"></div>
     <p id="finalClue" class="clue-small clue-font"></p>
     <p class="muted">Write your response (in the form of a question!)</p>
     <div id="answerPad"></div>
@@ -276,7 +277,7 @@
       DAILY_DOUBLE_WAGER: () => me.dailyDoubleWager ? '' : `<div class="center"><h2>Daily Double!</h2><p>${esc((teamById(s, s.clue.dailyDoubleTeamId) || {}).name || 'Another team')} is wagering.</p></div>`,
       CLUE: () => buzzView(s, me),
       FINAL_WAGER: () => me.finalEligible ? '' : '<div class="center"><h2>Final Jeopardy</h2><p>Only teams with a positive score play Final Jeopardy. Cheer the others on!</p></div>',
-      FINAL_ANSWER: () => me.finalEligible ? '' : `<div class="center"><h2>Final Jeopardy</h2><p class="clue-small clue-font">${esc(s.final.text)}</p></div>`,
+      FINAL_ANSWER: () => me.finalEligible ? '' : `<div class="center"><h2>Final Jeopardy</h2>${Jeo.hintTags(s.final.tags)}<p class="clue-small clue-font">${esc(s.final.text)}</p></div>`,
       FINAL_REVEAL: () => `<div class="center"><h2>The reveal!</h2><p>Watch the big screen.</p></div>`,
       GAME_OVER: () => `<div class="center stack"><h2>Game over!</h2><p>${(s.standings || []).map((t, i) => `${i + 1}. ${esc(t.name)} – ${money(t.score)}`).join('<br>')}</p></div>`
     }[s.phase] || (() => '');
@@ -290,6 +291,7 @@
     } else if (s.phase === 'FINAL_ANSWER' && me.finalEligible) {
       show('finalAnswer');
       $('finalClue').textContent = s.final.text || '';
+      $('finalTags').innerHTML = Jeo.hintTags(s.final.tags);
       $('answerStatus').textContent = me.finalAnswered ? 'Response submitted ✓ (you can resubmit until the host locks answers)' : '';
     } else {
       show(null);
@@ -332,7 +334,7 @@
   function buzzView(s, me) {
     const c = s.clue;
     if (c.dailyDouble) {
-      return `<div class="center stack"><h2>Daily Double</h2><p class="clue-small clue-font">${esc(c.text)}</p>
+      return `<div class="center stack"><h2>Daily Double</h2>${Jeo.hintTags(c.tags)}<p class="clue-small clue-font">${esc(c.text)}</p>
         <p>${me.answering ? 'Say your response to the host!' : 'Only the wagering team answers.'}</p></div>`;
     }
     let cls = '', label = 'WAIT';
@@ -342,6 +344,7 @@
     else if (me.canBuzz && c.buzzersOpen) { cls = 'ready'; label = c.rebound ? 'STEAL!' : 'BUZZ'; }
     else if (c.answeringTeamId) { label = 'WAIT'; }
     return `<p class="center muted" style="margin-bottom:0">${esc(c.category)}${c.keyword && c.keyword !== c.category ? ' · ' + esc(c.keyword) : ''} · $${c.value}</p>
+      ${Jeo.hintTags(c.tags)}
       <p class="clue-small clue-font center">${esc(c.text)}</p>
       ${c.rebound && me.canBuzz ? '<p class="center steal">Wrong answer! Buzzers are open again: steal it!</p>' : ''}
       <button id="buzz" class="buzz ${cls}">${label}</button>

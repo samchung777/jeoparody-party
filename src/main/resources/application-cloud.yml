@@ -18,7 +18,9 @@ trivia:
   # The production database is seeded from a copy of the local one, so don't re-import on start-up.
   import-on-startup: ${TRIVIA_IMPORT_ON_STARTUP:false}
   wiki:
-    seed-on-startup: ${TRIVIA_WIKI_SEED:false}
+    # Sync the starter list on start: new lines are queued (matched by page, so existing topics are untouched)
+    # and the research job writes them.
+    seed-on-startup: ${TRIVIA_WIKI_SEED:true}
 
 app:
   admin-key: ${ADMIN_KEY}     # required: protects /api/admin/** once the app is public

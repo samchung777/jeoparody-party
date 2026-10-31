@@ -200,6 +200,7 @@ public class GameSocketHandler extends TextWebSocketHandler {
                 return false;
             }
             case "setTheme" -> game.setTheme(msg.path("theme").asText(""));
+            case "setDifficulty" -> game.setDifficulty(msg.path("difficulty").asText(""));
             case "setFinalCategory" -> game.closeFinalVoting(games.clueSource(), msg.path("keywordId").asLong(-1));
             case "removeCategory" -> {
                 long keywordId = msg.path("keywordId").asLong(-1);

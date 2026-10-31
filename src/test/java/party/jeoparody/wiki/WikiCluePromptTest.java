@@ -87,6 +87,31 @@ class WikiCluePromptTest {
     }
 
     @Test
+    void bibleTopicsGetTheScriptureFocusOthersDont() {
+        WikiPage judges = new WikiPage(7, "Gideon", "https://en.wikipedia.org/wiki/Gideon", "Gideon was a judge.");
+        String bible = WikiCluePrompt.build(WikiText.parseTopic("The Judges = Gideon [The Bible, Old Testament]"),
+                judges, 24, Set.of());
+        assertTrue(bible.contains("This is a scripture category."));
+        assertTrue(bible.contains("Never make the answer a book, chapter or section name"));
+        assertTrue(WikiCluePrompt.isScripture(WikiText.parseTopic("Jesus' Parables = Parable of the Sower")));
+        assertTrue(!WikiCluePrompt.build(topic, page, 24, Set.of()).contains("This is a scripture category."));
+        assertTrue(!WikiCluePrompt.isScripture(WikiText.parseTopic("Greek Mythology = Zeus")),
+                "mythology is not scripture");
+    }
+
+    @Test
+    void voiceActorCluesAreDroppedAndThePromptForbidsThem() throws Exception {
+        String prompt = WikiCluePrompt.build(topic, page, 24, Set.of());
+        assertTrue(prompt.contains("voice actors or voice actresses (never ask who voices a character)"));
+        assertTrue(prompt.contains("for live-action films, TV and stage only"));
+        var reply = mapper.readTree("""
+                [{"difficulty":"easy","clue":"This voice actor voiced Burr in the animated parody",
+                  "answer":"Someone Else","response":"Who is Someone Else?",
+                  "quote":"Aaron Burr shot Hamilton in a duel in 1804.","keywords":[]}]""");
+        assertTrue(WikiCluePrompt.parse(reply, page, topic, Set.of()).isEmpty());
+    }
+
+    @Test
     void schemaRequiresAQuote() {
         var schema = WikiCluePrompt.responseSchema(mapper);
         assertTrue(schema.path("items").path("required").toString().contains("quote"));

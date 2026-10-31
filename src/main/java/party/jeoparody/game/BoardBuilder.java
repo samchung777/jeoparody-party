@@ -20,14 +20,6 @@ import java.util.Set;
  */
 public final class BoardBuilder {
 
-    /** Which difficulty to try first for each row (top row easiest, bottom rows hardest). */
-    private static final List<List<String>> ROW_PREFERENCES = List.of(
-            List.of("easy", "medium", "hard"),
-            List.of("easy", "medium", "hard"),
-            List.of("medium", "easy", "hard"),
-            List.of("hard", "medium", "easy"),
-            List.of("hard", "medium", "easy"));
-
     /** Daily Doubles mostly hide in the lower rows, as on the show. */
     private static final int[] DAILY_DOUBLE_ROW_WEIGHTS = {1, 3, 6, 9, 7};
 
@@ -70,6 +62,14 @@ public final class BoardBuilder {
      */
     public Optional<BoardCategory> buildCategory(KeywordOption keyword, List<CandidateClue> candidates,
             Set<Long> usedClueIds, Round round, int column) {
+        return buildCategory(keyword, candidates, usedClueIds, round, column, Difficulty.NORMAL);
+    }
+
+    /**
+     * Same, with the host's difficulty setting deciding which difficulty each row tries first (see Difficulty).
+     */
+    public Optional<BoardCategory> buildCategory(KeywordOption keyword, List<CandidateClue> candidates,
+            Set<Long> usedClueIds, Round round, int column, Difficulty level) {
         Map<String, List<CandidateClue>> byDifficulty = new HashMap<>();
         for (CandidateClue c : candidates) {
             if (!usedClueIds.contains(c.id())) {
@@ -89,7 +89,7 @@ public final class BoardBuilder {
         List<BoardCell> cells = new ArrayList<>();
         for (int row = 0; row < Game.ROWS; row++) {
             CandidateClue chosen = null;
-            for (String difficulty : ROW_PREFERENCES.get(row)) {
+            for (String difficulty : level.preferencesForRow(row)) {
                 List<CandidateClue> list = byDifficulty.getOrDefault(difficulty, List.of());
                 if (!list.isEmpty()) {
                     chosen = list.remove(list.size() - 1);
@@ -117,7 +117,13 @@ public final class BoardBuilder {
 
     /** Final Jeopardy should be hard; fall back to medium, then easy. Among those, the least-shown clues. */
     public Optional<CandidateClue> pickFinalClue(List<CandidateClue> candidates, Set<Long> usedClueIds) {
-        for (String difficulty : List.of("hard", "medium", "easy")) {
+        return pickFinalClue(candidates, usedClueIds, Difficulty.NORMAL);
+    }
+
+    /** Final clue in the setting's preferred order (Easy games get a medium Final), least-shown first. */
+    public Optional<CandidateClue> pickFinalClue(List<CandidateClue> candidates, Set<Long> usedClueIds,
+            Difficulty level) {
+        for (String difficulty : level.finalPreference()) {
             List<CandidateClue> unused = candidates.stream()
                     .filter(c -> difficulty.equals(c.difficulty()) && !usedClueIds.contains(c.id()))
                     .toList();

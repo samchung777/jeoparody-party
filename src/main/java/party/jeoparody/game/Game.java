@@ -74,6 +74,8 @@ public final class Game {
     private int gameNumber = 1;
     /** The host's theme: narrows which keywords this room offers (Everything by default). */
     private Themes.Theme theme = Themes.EVERYTHING;
+    /** The host's difficulty setting: which clue difficulties fill the board (Normal by default). */
+    private Difficulty difficulty = Difficulty.NORMAL;
 
     private final Map<String, Team> teams = new LinkedHashMap<>();
     private Phase phase = Phase.LOBBY;
@@ -252,6 +254,23 @@ public final class Game {
         theme = Themes.find(name).orElseThrow(() -> new GameException("Unknown theme"));
     }
 
+    /** The current difficulty setting. */
+    public synchronized Difficulty difficulty() {
+        return difficulty;
+    }
+
+    /**
+     * Host picks Easy, Normal or Hard before the boards are built (lobby, voting, or after a game for the next
+     * one). Boards are built when the vote closes, so the setting applies to the whole game.
+     */
+    public synchronized void setDifficulty(String name) {
+        touch();
+        if (phase != Phase.LOBBY && phase != Phase.VOTING && phase != Phase.GAME_OVER) {
+            throw new GameException("Difficulty can only change before the board is built");
+        }
+        difficulty = Difficulty.find(name).orElseThrow(() -> new GameException("Unknown difficulty"));
+    }
+
     /**
      * Lists every playable keyword in one genre (within the theme), most clues first, so phones can browse the
      * vote by general category instead of only the random pool. Same shape as search results.
@@ -417,7 +436,7 @@ public final class Game {
             List<BoardCategory> target = toJeopardy ? jeopardy : doubleJeopardy;
             Round round = toJeopardy ? Round.JEOPARDY : Round.DOUBLE_JEOPARDY;
             Optional<BoardCategory> category = builder.buildCategory(byId.get(id), source.cluesForKeyword(id),
-                    usedClueIds, round, target.size());
+                    usedClueIds, round, target.size(), difficulty);
             if (category.isPresent()) {
                 target.add(category.get());
                 chosen.add(id);
@@ -488,7 +507,8 @@ public final class Game {
             ranked = builder.rank(votes, finalOptions);
         }
         for (Long id : ranked) {
-            Optional<CandidateClue> clue = builder.pickFinalClue(source.cluesForKeyword(id), usedClueIds);
+            Optional<CandidateClue> clue = builder.pickFinalClue(source.cluesForKeyword(id), usedClueIds,
+                    difficulty);
             if (clue.isPresent()) {
                 finalCategory = finalOptions.stream().filter(k -> k.id() == id).findFirst().orElseThrow();
                 finalClue = clue.get();
@@ -857,6 +877,7 @@ public final class Game {
         v.put("round", currentBoard == null ? null : currentBoard.round().name());
         v.put("controlTeamId", controlTeamId);
         v.put("theme", theme.name());
+        v.put("difficulty", difficulty.label());
 
         List<Map<String, Object>> teamViews = new ArrayList<>();
         for (Team t : teams.values()) {
@@ -981,6 +1002,9 @@ public final class Game {
         c.put("wager", dailyDoubleWager);
         if (phase == Phase.CLUE || host) {
             c.put("text", currentCell.clue().clue());
+            // Hint tags: the clue's other keywords, minus any that would give the answer away.
+            c.put("tags", ClueTags.safe(currentCell.clue().keywords(), currentCell.clue().response(),
+                    categoryKeyword.name()));
         }
         c.put("buzzersOpen", buzzersOpen);
         c.put("rebound", rebound && buzzersOpen);
@@ -1008,6 +1032,7 @@ public final class Game {
         f.put("keyword", finalCategory.name());
         if (phase.compareTo(Phase.FINAL_ANSWER) >= 0) {
             f.put("text", finalClue.clue());
+            f.put("tags", ClueTags.safe(finalClue.keywords(), finalClue.response(), finalCategory.name()));
         }
         boolean responseVisible = host || phase == Phase.GAME_OVER || !finalJudged.isEmpty();
         if (responseVisible) {

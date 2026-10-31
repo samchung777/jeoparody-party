@@ -11,6 +11,7 @@ import java.util.regex.Pattern;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import party.jeoparody.genre.GenreRules;
 
 /**
  * Prompt for writing clues from an article, and the strict validation of Gemini's reply.
@@ -25,10 +26,32 @@ public final class WikiCluePrompt {
     static final int MAX_CLUE_LENGTH = 400;
     static final int MAX_EXCLUDED_IN_PROMPT = 150;
     private static final Set<String> DIFFICULTIES = Set.of("easy", "medium", "hard");
+    /** Voice-actor clues are never wanted, whatever Gemini writes (same words as the V10 migration). */
+    static final Pattern VOICE_ACTOR = Pattern.compile("(?i)voice (actor|actress|actors|cast)|voiced by"
+            + "|provides? the voice|provided the voice|lends? (his|her|their) voice|lent (his|her|their) voice"
+            + "|seiyuu|(actor|actress) (who )?voices|(actor|actress) who voiced");
     private static final Pattern RESPONSE_FORM = Pattern.compile("(?i)^(what|who|where|when|which|how)\\b.*\\?$");
+
+    /** Extra rules for Bible categories: clues about what the verses say, never about book or section names. */
+    static final String SCRIPTURE_FOCUS = """
+
+            This is a scripture category. Write about what the Bible text itself says: the events as the verses
+            describe them, who said or did what, miracles, parables and their lessons, prophecies, laws and
+            commands, and famous lines (quote or closely paraphrase the verse; a reference like "(Exodus 20)" may
+            be a hint). Never make the answer a book, chapter or section name, and never ask about authorship,
+            dating or scholarly theories.
+            """;
 
     /** Static helpers only. */
     private WikiCluePrompt() {
+    }
+
+    /** True for Bible topics: the keyword or one of its groups is a Bible category (not mythology). */
+    static boolean isScripture(WikiText.TopicSpec topic) {
+        List<String> names = new ArrayList<>(topic.groups());
+        names.add(topic.keyword());
+        return names.stream().anyMatch(n -> !n.toLowerCase(java.util.Locale.ROOT).contains("myth")
+                && GenreRules.fromName(n).contains("Bible & Mythology"));
     }
 
     /**
@@ -37,7 +60,8 @@ public final class WikiCluePrompt {
      */
     public static String build(WikiText.TopicSpec topic, WikiPage page, int count, Set<String> excludedAnswers) {
         String keyword = topic.keyword();
-        String focus = topic.focus() == null ? "" : "\nThe host asked for this focus: " + topic.focus() + "\n";
+        String focus = (topic.focus() == null ? "" : "\nThe host asked for this focus: " + topic.focus() + "\n")
+                + (isScripture(topic) ? SCRIPTURE_FOCUS : "");
         String avoid = excludedAnswers.isEmpty() ? "" : "\nThese answers are already used; do not use them again: "
                 + String.join("; ", excludedAnswers.stream().limit(MAX_EXCLUDED_IN_PROMPT).toList()) + "\n";
         return """
@@ -47,11 +71,12 @@ public final class WikiCluePrompt {
                 WRITE ABOUT what fans remember and love:
                 - the plot and story events, twists and endings
                 - main and supporting characters: names, roles, relationships, powers/abilities, signature lines
-                - the main cast and voice actors, and which character each one plays
+                - for live-action films, TV and stage only: the main actors and which character each one plays
                 - memorable songs (for musicals and films: the song title, who sings it, the moment it's sung)
                 - in-universe places, items, creatures, teams, factions and lore
                 - for games: playable characters, worlds, items, mechanics and story
-                - for scripture: the people, stories, events and teachings
+                - for scripture: what the verses themselves say: the people, events, miracles, parables,
+                  prophecies, laws and teachings, and memorable lines (never just a book or section name)
                 %s
                 NEVER WRITE ABOUT how or by whom it was made or sold:
                 - directors, writers, authors, producers, composers, lyricists, designers, developers, studios,
@@ -59,6 +84,9 @@ public final class WikiCluePrompt {
                 - development, production, filming, recording, casting decisions, budgets
                 - release dates or years, platforms, sales, box office, ratings, reviews, awards or nominations
                 - the real-world year or city a story is set in or was made in
+                - voice actors or voice actresses (never ask who voices a character)
+                - for anime, manga, cartoons, animation and video games: the real people who play or perform
+                  the characters
                 %s
                 Mix difficulties: about a third "easy" (a casual fan knows it), a third "medium", a third "hard"
                 (a superfan knows it). Hard means deeper in the story, not behind the scenes.
@@ -132,6 +160,9 @@ public final class WikiCluePrompt {
             }
             if (WikiText.givesAwayAnswer(clue, answer)) {
                 continue;
+            }
+            if (VOICE_ACTOR.matcher(clue).find()) {
+                continue; // a voice-actor clue
             }
             if (!WikiText.quoteAppearsIn(quote, article, MIN_QUOTE_LENGTH)) {
                 continue; // can't prove it from the article: possibly invented

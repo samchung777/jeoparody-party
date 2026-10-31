@@ -50,6 +50,43 @@ class GameRepositoryIT extends IntegrationTest {
     }
 
     @Test
+    void cluesCarryTheirLiveKeywordsAsHintTags() {
+        long category = TestData.category(jdbc, "Film");
+        for (int i = 0; i < 5; i++) {
+            TestData.playableClue(jdbc, category, "easy", "Tag Q" + i + "?", "T" + i, "Has Tags", "Tatooine",
+                    "Retired Tag");
+        }
+        jdbc.update("UPDATE keyword SET retired_at = CURRENT_TIMESTAMP WHERE name = 'Retired Tag'");
+        long keywordId = jdbc.queryForObject("SELECT id FROM keyword WHERE name = 'Has Tags'", Long.class);
+        List<CandidateClue> clues = repository.cluesForKeyword(keywordId);
+        assertEquals(5, clues.size());
+        assertEquals(List.of("Has Tags", "Tatooine"), clues.get(0).keywords(), "removed keywords are not hints");
+    }
+
+    @Test
+    void theVoiceActorMigrationRetiresOnlyVoiceActorClues() throws Exception {
+        long category = TestData.category(jdbc, "Anime");
+        long voice = TestData.playableClue(jdbc, category, "easy", "Who is the voice actor of Goku?", "Masako Nozawa",
+                "Dragon Ball");
+        long voiced = TestData.playableClue(jdbc, category, "easy", "Naruto is voiced by her in English", "Maile",
+                "Naruto");
+        long story = TestData.playableClue(jdbc, category, "easy", "Ariel trades her voice for legs", "Ursula",
+                "The Little Mermaid");
+        String sql = new String(getClass().getResourceAsStream("/db/migration/V10__no_voice_actor_clues.sql")
+                .readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        for (String statement : sql.replaceAll("(?m)^--.*$", "").split(";")) {
+            if (!statement.isBlank()) {
+                jdbc.update(statement);
+            }
+        }
+        assertEquals(List.of(voice, voiced), jdbc.queryForList(
+                "SELECT id FROM clue WHERE retired_at IS NOT NULL ORDER BY id", Long.class));
+        assertEquals(2, TestData.count(jdbc, "SELECT COUNT(*) FROM clue_feedback WHERE note = 'voice actor clue'"));
+        assertEquals(0, TestData.count(jdbc, "SELECT COUNT(*) FROM clue WHERE id = ? AND retired_at IS NOT NULL",
+                story));
+    }
+
+    @Test
     void finishedGamesAreSavedOnceWithStandings() {
         Game game = games.create().game();
         Team a = game.join("Alpha", null);

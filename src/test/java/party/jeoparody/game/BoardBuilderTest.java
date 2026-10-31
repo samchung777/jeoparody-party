@@ -115,6 +115,42 @@ class BoardBuilderTest {
     }
 
     @Test
+    void easyGamesUseMostlyEasyCluesWithOneMediumAtTheBottom() {
+        List<CandidateClue> pool = clues("easy", "easy", "easy", "easy", "easy", "easy", "medium", "medium",
+                "hard", "hard", "hard", "hard");
+        List<String> difficulties = builder.buildCategory(keyword, pool, new HashSet<>(), Round.JEOPARDY, 0,
+                Difficulty.EASY).orElseThrow().cells().stream().map(c -> c.clue().difficulty()).toList();
+        assertEquals(List.of("easy", "easy", "easy", "easy", "medium"), difficulties);
+    }
+
+    @Test
+    void hardGamesUseMostlyHardCluesWithOneMediumAtTheTop() {
+        List<CandidateClue> pool = clues("easy", "easy", "easy", "medium", "medium", "hard", "hard", "hard",
+                "hard", "hard");
+        List<String> difficulties = builder.buildCategory(keyword, pool, new HashSet<>(), Round.JEOPARDY, 0,
+                Difficulty.HARD).orElseThrow().cells().stream().map(c -> c.clue().difficulty()).toList();
+        assertEquals(List.of("medium", "hard", "hard", "hard", "hard"), difficulties);
+    }
+
+    @Test
+    void difficultySettingsStillFillAColumnWhenACategoryLacksThatDifficulty() {
+        List<String> difficulties = builder.buildCategory(keyword, clues("hard", "hard", "medium", "hard", "hard"),
+                new HashSet<>(), Round.JEOPARDY, 0, Difficulty.EASY).orElseThrow().cells().stream()
+                .map(c -> c.clue().difficulty()).toList();
+        assertEquals(List.of("medium", "hard", "hard", "hard", "hard"), difficulties);
+    }
+
+    @Test
+    void easyGamesGetAMediumFinalClue() {
+        List<CandidateClue> list = clues("easy", "medium", "hard");
+        assertEquals("medium", builder.pickFinalClue(list, new HashSet<>(), Difficulty.EASY).orElseThrow().difficulty());
+        assertEquals("hard", builder.pickFinalClue(list, new HashSet<>(), Difficulty.HARD).orElseThrow().difficulty());
+        assertEquals(Difficulty.HARD, Difficulty.find("hard").orElseThrow());
+        assertEquals(Difficulty.EASY, Difficulty.find(" Easy ").orElseThrow());
+        assertTrue(Difficulty.find("impossible").isEmpty());
+    }
+
+    @Test
     void finalCluePrefersHardThenMediumAndSkipsUsed() {
         List<CandidateClue> list = clues("easy", "medium", "hard");
         assertEquals("hard", builder.pickFinalClue(list, new HashSet<>()).orElseThrow().difficulty());

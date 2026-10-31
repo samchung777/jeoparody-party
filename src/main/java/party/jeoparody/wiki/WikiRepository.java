@@ -124,6 +124,12 @@ public class WikiRepository {
                 limit);
     }
 
+    /** Topics waiting to be written. */
+    public int countQueued() {
+        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM wiki_topic WHERE status = 'queued'", Integer.class);
+        return n == null ? 0 : n;
+    }
+
     /** Number of topics (tests). */
     public int countTopics() {
         Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM wiki_topic", Integer.class);

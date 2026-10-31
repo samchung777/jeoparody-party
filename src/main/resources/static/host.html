@@ -51,11 +51,18 @@
   <div class="stack">
     <section class="panel stack" id="phase"></section>
     <section class="panel stack hidden" id="themePicker">
-      <h3 style="margin:0">Theme</h3>
+      <h3 style="margin:0">Theme &amp; difficulty</h3>
       <p class="muted" style="margin:0">Narrow the categories to a vibe. A theme needs at least 13 categories.</p>
       <div class="row">
         <select id="themeSelect" style="padding:10px;border-radius:8px;min-width:260px"></select>
         <span id="themeStatus" class="gold"></span>
+      </div>
+      <h3 style="margin:8px 0 0">Difficulty</h3>
+      <div class="row" id="difficultyPicker">
+        <button class="secondary" data-difficulty="Easy">Easy</button>
+        <button class="secondary" data-difficulty="Normal">Normal</button>
+        <button class="secondary" data-difficulty="Hard">Hard</button>
+        <span id="difficultyStatus" class="muted"></span>
       </div>
     </section>
     <section class="panel stack hidden" id="finalPicker">
@@ -172,8 +179,18 @@
     }
     const t = themes.find(x => x.name === state.theme);
     document.getElementById('themeStatus').textContent = t && t.genres.length ? t.genres.join(' · ') : 'Every category';
+    document.querySelectorAll('#difficultyPicker [data-difficulty]').forEach(b =>
+      b.classList.toggle('secondary', b.dataset.difficulty !== state.difficulty));
+    document.getElementById('difficultyStatus').textContent = DIFFICULTY_HELP[state.difficulty] || '';
   }
   document.getElementById('themeSelect').addEventListener('change', e => send('setTheme', { theme: e.target.value }));
+  // Difficulty: Easy = mostly easy clues (one medium per column), Normal = easy top to hard bottom, Hard = mostly hard.
+  const DIFFICULTY_HELP = { Easy: 'Mostly easy clues, one or two medium per category',
+    Normal: 'Easy at the top, hard at the bottom', Hard: 'Mostly hard clues for superfans' };
+  document.getElementById('difficultyPicker').addEventListener('click', e => {
+    const b = e.target.closest('[data-difficulty]');
+    if (b) send('setDifficulty', { difficulty: b.dataset.difficulty });
+  });
   loadThemes();
 
   // ---- Topic suggestions: saved now, researched (stale categories + suggestions) when the game ends.
@@ -317,7 +334,7 @@
   function lobby() {
     return `<h2 style="margin:0">Waiting for teams</h2>
       <p>Open the <b>board</b> on the TV, then have each team join on a phone and draw their team name.</p>
-      <p>Pick a theme below if you want one (now <b class="gold">${esc(state.theme || 'Everything')}</b>), then start the category vote.
+      <p>Pick a theme and difficulty below (now <b class="gold">${esc(state.theme || 'Everything')}</b>, <b class="gold">${esc(state.difficulty || 'Normal')}</b>), then start the category vote.
          Players see a random pool of 26 categories, can browse by genre (Movies, TV, Anime…) or search, and vote for up to 12.</p>
       <div class="big-actions"><button data-action="startVoting" ${state.teams.length ? '' : 'disabled'}>Start category vote</button></div>`;
   }
@@ -388,6 +405,7 @@
     const locked = c.lockedOut.length ? `<p class="muted">Locked out: ${c.lockedOut.map(name).join(', ')}</p>` : '';
     return `<h2 style="margin:0">${withKeyword(c.category, c.keyword)} · ${c.dailyDouble ? `Daily Double · wager ${money(c.wager)}` : '$' + c.value}</h2>
       <p class="clue-text clue-font">${esc(c.text)}</p>
+      ${Jeo.hintTags(c.tags)}
       <p class="response">${esc(c.response)}</p>
       ${c.lastResult ? `<p>Last ruling: <b>${c.lastResult}</b></p>` : ''}
       ${locked}
@@ -410,6 +428,7 @@
     const eligible = state.teams.filter(t => t.finalEligible);
     return `<h2 style="margin:0" class="gold">Final Jeopardy · ${withKeyword(f.category, f.keyword)}</h2>
       <p class="clue-text clue-font">${esc(f.text)}</p>
+      ${Jeo.hintTags(f.tags)}
       <p class="response">${esc(f.response)}</p>
       <p>Teams are writing their responses. Play some thinking music!</p>
       <ul>${eligible.map(t => `<li>${esc(t.name)} – ${t.answered ? '✅ submitted' : '✏️ writing'}</li>`).join('')}</ul>
