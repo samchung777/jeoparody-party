@@ -743,4 +743,50 @@ class GameTest {
         game.playAgain(source);
         assertEquals("Everything", game.themeName());
     }
+
+    @Test
+    void cluesShowHintTagsButNeverTheCategoryOrTheAnswer() {
+        playToBoard();
+        int[] cell = findNormalCell();
+        game.selectCell(cell[0], cell[1]);
+        Map<String, Object> host = (Map<String, Object>) view(Game.Viewer.HOST).get("clue");
+        assertEquals(List.of("Safe Hint"), host.get("tags"), "category and answer tags removed");
+        assertEquals(List.of("Safe Hint"), ((Map<String, Object>) view(Game.Viewer.BOARD).get("clue")).get("tags"));
+    }
+
+    @Test
+    void theHostPicksADifficultyBeforeTheBoardIsBuilt() {
+        assertEquals("Normal", view(Game.Viewer.BOARD).get("difficulty"));
+        assertThrows(GameException.class, () -> game.setDifficulty("Impossible"));
+        game.setDifficulty("hard");
+        assertEquals("Hard", view(Game.Viewer.PLAYER).get("difficulty"));
+        game.startVoting(source);
+        game.setDifficulty("Easy"); // still allowed while voting: boards are built when the vote closes
+        assertEquals(Difficulty.EASY, game.difficulty());
+        playToBoardFromVoting();
+        assertThrows(GameException.class, () -> game.setDifficulty("Hard"), "locked once the board exists");
+
+        game.adjustScore(red.id(), 100);
+        game.endRound();
+        game.endRound();
+        Map<String, Object> fin = (Map<String, Object>) view(Game.Viewer.HOST).get("final");
+        long finalId = (Long) fin.get("clueId");
+        String finalDifficulty = source.clues.values().stream().flatMap(List::stream)
+                .filter(c -> c.id() == finalId).findFirst().orElseThrow().difficulty();
+        assertEquals("medium", finalDifficulty, "Easy games get a medium Final");
+
+        game.finish();
+        game.playAgain(source);
+        assertEquals(Difficulty.EASY, game.difficulty(), "the setting carries over to the next game");
+    }
+
+    /** Same as playToBoard, from an already started vote. */
+    private void playToBoardFromVoting() {
+        List<Long> pool = poolIds();
+        game.vote(red.id(), pool.subList(0, 12));
+        game.closeVoting(source);
+        List<Map<String, Object>> finals = (List<Map<String, Object>>) view(Game.Viewer.HOST).get("finalOptions");
+        game.voteFinal(red.id(), (Long) finals.get(0).get("id"));
+        game.closeFinalVoting(source);
+    }
 }

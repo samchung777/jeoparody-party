@@ -49,19 +49,24 @@ public class GameRepository implements ClueSource {
     }
 
     /**
-     * Every usable clue for one keyword; BoardBuilder then picks five by difficulty for a column.
+     * Every usable clue for one keyword, with all the keywords it is tagged with (hint tags on screen);
+     * BoardBuilder then picks five by difficulty for a column.
      */
     @Override
     public List<CandidateClue> cluesForKeyword(long keywordId) {
         return jdbc.query("""
-                SELECT cl.id, cl.difficulty, cl.jeopardy_clue, cl.jeopardy_response, cl.staleness
+                SELECT cl.id, cl.difficulty, cl.jeopardy_clue, cl.jeopardy_response, cl.staleness,
+                       (SELECT GROUP_CONCAT(k2.name ORDER BY k2.id SEPARATOR '|')
+                        FROM clue_keyword ck2 JOIN keyword k2 ON k2.id = ck2.keyword_id
+                        WHERE ck2.clue_id = cl.id AND k2.retired_at IS NULL) AS keywords
                 FROM clue cl
                 JOIN clue_keyword ck ON ck.clue_id = cl.id
                 WHERE ck.keyword_id = ? AND cl.jeopardy_clue IS NOT NULL AND cl.jeopardy_response IS NOT NULL
                   AND cl.retired_at IS NULL
                 """,
                 (rs, i) -> new CandidateClue(rs.getLong("id"), rs.getString("difficulty"),
-                        rs.getString("jeopardy_clue"), rs.getString("jeopardy_response"), rs.getInt("staleness")),
+                        rs.getString("jeopardy_clue"), rs.getString("jeopardy_response"), rs.getInt("staleness"),
+                        splitKeywords(rs.getString("keywords"))),
                 keywordId);
     }
 
@@ -100,6 +105,10 @@ public class GameRepository implements ClueSource {
         }
         jdbc.batchUpdate("UPDATE clue SET staleness = staleness + 1 WHERE id = ?",
                 clueIds.stream().map(id -> new Object[] {id}).toList());
+    }
+
+    private static List<String> splitKeywords(String joined) {
+        return joined == null || joined.isBlank() ? List.of() : List.of(joined.split("\\|"));
     }
 
     private static Set<String> splitGenres(String joined) {

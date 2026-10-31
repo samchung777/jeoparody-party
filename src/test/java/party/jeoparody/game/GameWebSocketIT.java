@@ -320,6 +320,8 @@ class GameWebSocketIT {
 
         host.send("setTheme", Map.of("theme", "Movie Night"));
         host.awaitState(s -> "Movie Night".equals(s.path("theme").asText()));
+        host.send("setDifficulty", Map.of("difficulty", "Hard"));
+        alice.awaitState(s -> "Hard".equals(s.path("difficulty").asText()));
         host.send("startVoting");
         JsonNode voting = alice.awaitPhase("VOTING");
         assertEquals(1, voting.path("genres").size(), "only Movies is on offer");

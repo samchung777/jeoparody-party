@@ -176,6 +176,18 @@ jobs:
           name: Sign gcloud in (OIDC -> circleci-deploy)
           command: bash scripts/gcp-oidc-login.sh "circleci-deploy@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
       - run:
+          # The research worker: same image, started by the game server (Admin API jobs.run) after a game ends.
+          # RESEARCH_WORKER=true makes it drain the research queue once and exit; APP_STARTUP_JOBS=false keeps the
+          # usual startup imports off. Deployed BEFORE the candidate: the candidate may start the job as soon as it
+          # boots (queued Wikipedia topics), and the job must already run the new code and database migrations.
+          name: Deploy the research worker (Cloud Run Job)
+          command: |
+            gcloud run jobs deploy jeoparody-research --image="$APP_IMAGE" --region="$REGION" \
+              --service-account="jeoparody-run@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+              --set-env-vars="SPRING_PROFILES_ACTIVE=cloud,RESEARCH_WORKER=true,APP_STARTUP_JOBS=false,CLOUD_SQL_INSTANCE=${GCP_PROJECT_ID}:${REGION}:jeoparody-db,DB_USER=jeoparody-run,GOOGLE_CLOUD_PROJECT=${GCP_PROJECT_ID}" \
+              --set-secrets=ADMIN_KEY=admin-key:latest \
+              --tasks=1 --max-retries=0 --task-timeout=10800 --memory=1Gi --quiet
+      - run:
           # --no-traffic: users stay on the current revision. --tag=candidate: the new revision gets its own URL to test.
           name: Deploy candidate revision (no traffic yet)
           command: |
@@ -195,17 +207,6 @@ jobs:
       - run:
           name: Smoke-test the live service
           command: sh scripts/smoke-test.sh "$(gcloud run services describe "$SERVICE" --region="$REGION" --format='value(status.url)')"
-      - run:
-          # The research worker: same image, started by the game server (Admin API jobs.run) after a game ends.
-          # RESEARCH_WORKER=true makes it drain the research queue once and exit; APP_STARTUP_JOBS=false keeps the
-          # usual startup imports off. Deployed after promotion so the job always runs the code that is live.
-          name: Deploy the research worker (Cloud Run Job)
-          command: |
-            gcloud run jobs deploy jeoparody-research --image="$APP_IMAGE" --region="$REGION" \
-              --service-account="jeoparody-run@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
-              --set-env-vars="SPRING_PROFILES_ACTIVE=cloud,RESEARCH_WORKER=true,APP_STARTUP_JOBS=false,CLOUD_SQL_INSTANCE=${GCP_PROJECT_ID}:${REGION}:jeoparody-db,DB_USER=jeoparody-run,GOOGLE_CLOUD_PROJECT=${GCP_PROJECT_ID}" \
-              --set-secrets=ADMIN_KEY=admin-key:latest \
-              --tasks=1 --max-retries=0 --task-timeout=3600 --memory=1Gi --quiet
 
   skip-build:
     description: Placeholder so documentation-only changes still report a green status

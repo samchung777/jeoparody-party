@@ -103,5 +103,11 @@ const Jeo = (() => {
   // The join link shown on the host screen and TV board.
   const playerUrl = code => `${location.origin}/play.html?game=${encodeURIComponent(code)}`;
 
-  return { esc, money, params, toast, connect, teamById, teamLabel, playerUrl };
+  /**
+   * Hint tags under a clue: its other keywords (the server already dropped any that would give the answer away).
+   */
+  const hintTags = tags => tags && tags.length
+    ? `<div class="hint-tags">${tags.map(t => `<span class="hint-tag">${esc(t)}</span>`).join('')}</div>` : '';
+
+  return { esc, money, params, toast, connect, teamById, teamLabel, playerUrl, hintTags };
 })();

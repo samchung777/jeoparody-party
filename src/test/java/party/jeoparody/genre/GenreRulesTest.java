@@ -19,6 +19,11 @@ class GenreRulesTest {
         assertEquals(Set.of("Cartoons"), GenreRules.fromName("90s Cartoons"));
         assertEquals(Set.of("Musicals & Theatre"), GenreRules.fromName("Broadway Musicals"));
         assertEquals(Set.of("Bible & Mythology"), GenreRules.fromName("Old Testament"));
+        for (String bible : java.util.List.of("The Judges", "The Kings", "Minor Prophets", "Jesus' Miracles",
+                "Jesus' Parables", "The 12 Disciples", "Israel's Exodus", "Levitical Law", "Eschatology",
+                "The Patriarchs", "Paul's Epistles", "Psalms & Proverbs")) {
+            assertEquals(Set.of("Bible & Mythology"), GenreRules.fromName(bible), bible);
+        }
         assertEquals(Set.of("Video Games"), GenreRules.fromName("Modern Video Games"));
         assertEquals(Set.of("Movies", "Music"), GenreRules.fromName("Disney Movie Songs"), "both can apply");
     }

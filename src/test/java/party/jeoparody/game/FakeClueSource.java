@@ -20,7 +20,9 @@ final class FakeClueSource implements ClueSource {
             keywords.add(new KeywordOption(k, "Keyword " + k, k % 3 == 0 ? null : "Punny Title " + k, 7, Set.of(genre)));
             List<CandidateClue> list = new ArrayList<>();
             for (String difficulty : List.of("easy", "easy", "medium", "medium", "hard", "hard", "hard")) {
-                list.add(new CandidateClue(clueId, difficulty, "Clue text " + clueId, "What is " + clueId + "?"));
+                // Tags: the category itself, a safe hint, and one that is the answer (must never be shown).
+                list.add(new CandidateClue(clueId, difficulty, "Clue text " + clueId, "What is " + clueId + "?", 0,
+                        List.of("Keyword " + k, "Safe Hint", String.valueOf(clueId))));
                 clueId++;
             }
             clues.put(k, list);

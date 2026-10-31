@@ -15,7 +15,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 public final class ReviewPrompt {
 
     /** Bump when the review rules change: every live clue is reviewed again. */
-    public static final int VERSION = 1;
+    public static final int VERSION = 2;
     static final int MAX_REASON = 300;
 
     /**
@@ -25,7 +25,8 @@ public final class ReviewPrompt {
     }
 
     /**
-     * Asks Gemini to flag clues about production rather than story (directors, release dates, box office, studios).
+     * Asks Gemini to flag clues about production rather than story (directors, release dates, box office, studios),
+     * voice-actor clues anywhere, and actor clues in animated, anime and game categories (version 2).
      */
     public static String build(ObjectMapper mapper, List<ClueToReview> batch) {
         ArrayNode items = mapper.createArrayNode();
@@ -33,23 +34,32 @@ public final class ReviewPrompt {
             ObjectNode n = items.addObject();
             n.put("id", c.id());
             n.put("category", c.category());
+            if (!c.genres().isBlank()) {
+                n.put("genres", c.genres().replace("|", ", "));
+            }
             n.put("clue", c.clue());
             n.put("response", c.response());
         }
         return """
                 You review clues for a pop-culture trivia party game. Players want clues about the stories and
-                things fans love: plot events, characters, the main cast (actors and voice actors and who they
-                play), performing artists and bands, songs, in-universe places, items and lore, and general
-                knowledge (science, history, geography, scripture stories...).
+                things fans love: plot events, characters, performing artists and bands, songs, in-universe places,
+                items and lore, and general knowledge (science, history, geography, scripture stories...).
 
-                Mark a clue "offTopic": true ONLY if it is mainly about how or by whom something was made or sold:
+                Mark a clue "offTopic": true if it is mainly about how or by whom something was made or sold:
                 - who directed, wrote, authored, produced, composed, designed, developed or published it,
                   or which studio, network or record label made it
                 - development, production, filming, recording, casting decisions or budgets
                 - release dates or years, consoles/platforms it came out on, sales, box office, ratings,
                   reviews, awards or nominations
                 - the real-world year or city a story is set in or was made in
-                The performing artist of a song or the actor who plays a character is NOT behind the scenes.
+
+                Also mark "offTopic": true for actor clues:
+                - ANY clue about a voice actor or voice actress (who voices or voiced a character, dub or
+                  original-language voice cast, seiyuu), in every category
+                - in anime, manga, cartoons, animated films or series, and video games: any clue whose answer is
+                  the real person who plays, portrays or performs a character (use the category and genres to tell)
+                In live-action movies, TV and stage shows, the actor who plays a character is fine (keep it).
+                The performing artist of a song is NOT behind the scenes.
                 When unsure, keep the clue ("offTopic": false).
 
                 For every item return {"id", "offTopic", "reason"} where reason is a few words when offTopic.

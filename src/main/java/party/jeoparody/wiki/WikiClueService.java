@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -26,6 +27,8 @@ import party.jeoparody.enrich.EnrichmentProperties;
 import party.jeoparody.enrich.EnrichmentRepository;
 import party.jeoparody.enrich.EnrichmentService;
 import party.jeoparody.enrich.TransientEnrichmentException;
+import party.jeoparody.research.ResearchLauncher;
+import party.jeoparody.research.ResearchProperties;
 import party.jeoparody.review.ReviewPrompt;
 import party.jeoparody.trivia.TriviaRepository;
 
@@ -55,6 +58,8 @@ public class WikiClueService {
     private final EnrichmentService enrichment;
     private final WikiProperties props;
     private final EnrichmentProperties geminiProps;
+    private final ResearchProperties researchProps;
+    private final ObjectProvider<ResearchLauncher> researchLauncher;
     private final AtomicBoolean queued = new AtomicBoolean(false);
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "wiki-clues");
@@ -68,7 +73,10 @@ public class WikiClueService {
      */
     public WikiClueService(WikiSource source, WikiClueGenerator generator, WikiRepository repository,
             TriviaRepository trivia, EnrichmentRepository enrichmentRepository, EnrichmentService enrichment,
-            WikiProperties props, EnrichmentProperties geminiProps) {
+            WikiProperties props, EnrichmentProperties geminiProps, ResearchProperties researchProps,
+            ObjectProvider<ResearchLauncher> researchLauncher) {
+        this.researchProps = researchProps;
+        this.researchLauncher = researchLauncher;
         this.source = source;
         this.generator = generator;
         this.repository = repository;
@@ -101,6 +109,15 @@ public class WikiClueService {
         int requeued = repository.requeueOutdated(WikiCluePrompt.VERSION);
         if (requeued > 0) {
             log.info("Re-queued {} Wikipedia topics written with an older prompt", requeued);
+        }
+        // On Cloud Run the research job writes queued topics, so a deploy never slows the game server down.
+        int waiting = repository.countQueued();
+        if (researchProps.enabled() && researchProps.jobMode()) {
+            if (waiting > 0) {
+                log.info("{} Wikipedia topics queued; starting the research job to write them", waiting);
+                researchLauncher.getObject().launch();
+            }
+            return;
         }
         requestRun();
     }

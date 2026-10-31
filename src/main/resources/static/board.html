@@ -124,6 +124,7 @@
       <div class="lobby-teams">${s.teams.map(t => `<div class="t">${teamLabel(t, { big: true })}</div>`).join('')}</div>
       <p class="big muted">${s.teams.length ? `${s.teams.length} team${s.teams.length > 1 ? 's' : ''} ready` : 'Waiting for teams…'}</p>
       ${s.theme && s.theme !== 'Everything' ? `<p class="big gold title-font">TONIGHT'S THEME: ${esc(s.theme.toUpperCase())}</p>` : ''}
+      ${s.difficulty && s.difficulty !== 'Normal' ? `<p class="big gold title-font">DIFFICULTY: ${esc(s.difficulty.toUpperCase())}</p>` : ''}
     </div>`;
   }
 
@@ -183,6 +184,7 @@
     const label = c.dailyDouble ? `DAILY DOUBLE · WAGER ${money(c.wager)}` : `$${c.value}`;
     return `<div class="overlay">
       <div class="cat-line title-font">${withKeyword(c.category, c.keyword)} · ${label}</div>
+      ${Jeo.hintTags(c.tags)}
       <div class="clue clue-font">${esc(c.text)}</div>
       ${c.revealed ? `<div class="response clue-font">${esc(c.response)}</div>` : ''}
       <div class="status">${status}</div>
@@ -203,6 +205,7 @@
     const pending = s.teams.filter(t => t.finalEligible && !t.answered).length;
     return `<div class="overlay">
       <div class="cat-line title-font">FINAL JEOPARDY · ${withKeyword(s.final.category, s.final.keyword)}</div>
+      ${Jeo.hintTags(s.final.tags)}
       <div class="clue clue-font">${esc(s.final.text)}</div>
       <div class="status">${pending ? `${pending} team${pending > 1 ? 's' : ''} still writing…` : 'All responses are in!'}</div>
     </div>`;

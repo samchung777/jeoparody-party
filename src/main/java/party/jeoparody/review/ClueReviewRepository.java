@@ -25,15 +25,18 @@ public class ClueReviewRepository {
     /** Live, converted clues not yet reviewed with the current ReviewPrompt.VERSION. */
     public List<ClueToReview> findPending(int limit) {
         return jdbc.query("""
-                SELECT cl.id, c.name AS category, cl.jeopardy_clue, cl.jeopardy_response
+                SELECT cl.id, c.name AS category, cl.jeopardy_clue, cl.jeopardy_response,
+                       (SELECT GROUP_CONCAT(DISTINCT g.genre SEPARATOR '|')
+                        FROM clue_keyword ck JOIN keyword_genre g ON g.keyword_id = ck.keyword_id
+                        WHERE ck.clue_id = cl.id) AS genres
                 FROM clue cl
                 JOIN category c ON c.id = cl.category_id
                 WHERE cl.retired_at IS NULL AND cl.jeopardy_clue IS NOT NULL AND cl.review_version < ?
                 ORDER BY cl.id
                 LIMIT ?
                 """,
-                (rs, i) -> new ClueToReview(rs.getLong("id"), rs.getString("category"), rs.getString("jeopardy_clue"),
-                        rs.getString("jeopardy_response")),
+                (rs, i) -> new ClueToReview(rs.getLong("id"), rs.getString("category"),
+                        rs.getString("jeopardy_clue"), rs.getString("jeopardy_response"), rs.getString("genres") == null ? "" : rs.getString("genres")),
                 ReviewPrompt.VERSION, limit);
     }
 

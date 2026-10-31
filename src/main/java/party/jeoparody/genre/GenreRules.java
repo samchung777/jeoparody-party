@@ -34,7 +34,9 @@ public final class GenreRules {
             Map.entry(word("video games?|nintendo|playstation|xbox|pok[eé]mon games?"), "Video Games"),
             Map.entry(word("cartoons?|animated series|cartoon network|nickelodeon|nicktoons"), "Cartoons"),
             Map.entry(word("musicals?|broadway|theatre|theater"), "Musicals & Theatre"),
-            Map.entry(word("bible|old testament|new testament|gospels?|mythology|myths?"), "Bible & Mythology"),
+            Map.entry(word("bible|old testament|new testament|gospels?|mythology|myths?|scripture|prophets|apostles"
+                    + "|disciples|parables|patriarchs|levitical law|eschatology|jesus'?|israel's exodus|the judges"
+                    + "|the kings|psalms|epistles"), "Bible & Mythology"),
             Map.entry(word("food|cooking|chefs?|baking|food network"), "Food"),
             Map.entry(word("movies?|films?|cinema|blockbusters?"), "Movies"),
             Map.entry(word("tv|television|sitcoms?|reality tv"), "TV"),
