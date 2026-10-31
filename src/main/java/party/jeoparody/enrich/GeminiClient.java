@@ -5,6 +5,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.List;
 
@@ -34,6 +35,9 @@ public class GeminiClient {
     private static final String SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 
     /** Java's built-in HTTP client (no extra library); 10 s to connect, 120 s per Gemini reply. */
+    /** Writing 24 clues from a 60,000-character article can take a few minutes. */
+    static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(5);
+
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     private final ObjectMapper mapper;
     private final EnrichmentProperties props;
@@ -62,12 +66,19 @@ public class GeminiClient {
         config.set("responseSchema", responseSchema);
 
         HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint()))
-                .timeout(Duration.ofSeconds(120))
+                .timeout(REQUEST_TIMEOUT)
                 .header("Authorization", "Bearer " + accessToken())
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
                 .build();
-        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response;
+        try {
+            response = http.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (HttpTimeoutException e) {
+            // Long articles can take Gemini minutes; a timeout is retried with back-off like a busy server.
+            throw new TransientEnrichmentException("Gemini took longer than " + REQUEST_TIMEOUT.toSeconds()
+                    + " s (will retry)");
+        }
         int code = response.statusCode();
         if (code == 429 || code == 500 || code == 502 || code == 503 || code == 504) {
             throw new TransientEnrichmentException("Vertex AI returned HTTP " + code + " (will retry)");

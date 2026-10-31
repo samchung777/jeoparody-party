@@ -180,6 +180,10 @@ public class WikiClueService {
 
     /** Processes every queued topic on the calling thread. Public so tests can run it synchronously. */
     public void processQueue() {
+        int retried = repository.requeueTimedOut(); // once per run, so a slow topic can't loop forever
+        if (retried > 0) {
+            log.info("Retrying {} Wikipedia topics that timed out", retried);
+        }
         int processed = 0;
         Optional<WikiRepository.QueuedTopic> next;
         while (!Thread.currentThread().isInterrupted() && (next = repository.nextQueued()).isPresent()) {

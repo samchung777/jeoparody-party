@@ -100,6 +100,14 @@ public class WikiRepository {
     /**
      * Stores the error (capped at 500 characters) for the library page; re-queuing the topic retries it.
      */
+    /** Puts topics that failed only because a request timed out back in the queue. Returns how many. */
+    public int requeueTimedOut() {
+        return jdbc.update("""
+                UPDATE wiki_topic SET status = 'queued', error = NULL
+                WHERE status = 'failed' AND (error LIKE '%timed out%' OR error LIKE '%took longer than%')
+                """);
+    }
+
     public void markFailed(long id, String error) {
         String e = error == null ? "Unknown error" : error;
         jdbc.update("UPDATE wiki_topic SET status = 'failed', error = ? WHERE id = ?",

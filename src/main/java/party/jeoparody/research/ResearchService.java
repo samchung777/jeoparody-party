@@ -63,6 +63,7 @@ public class ResearchService {
     /** Works through every queued task on the calling thread. Returns how many tasks it handled. */
     public int processQueue() {
         repository.requeueStuck(java.time.Duration.ofHours(2));
+        repository.requeueTimedOut(); // once per run, so a slow topic can't loop forever
         int handled = 0;
         Optional<ResearchTask> next;
         while (!Thread.currentThread().isInterrupted() && (next = repository.claimNext()).isPresent()) {

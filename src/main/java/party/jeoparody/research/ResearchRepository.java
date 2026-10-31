@@ -123,6 +123,14 @@ public class ResearchRepository {
     }
 
     /** Puts tasks left 'running' by a crashed worker back in the queue. */
+    /** Puts tasks that failed only because a request timed out back in the queue. Returns how many. */
+    public int requeueTimedOut() {
+        return jdbc.update("""
+                UPDATE research_task SET status = 'queued', error = NULL
+                WHERE status = 'failed' AND (error LIKE '%timed out%' OR error LIKE '%took longer than%')
+                """);
+    }
+
     public int requeueStuck(Duration olderThan) {
         return jdbc.update("UPDATE research_task SET status = 'queued' WHERE status = 'running' AND updated_at < ?",
                 Timestamp.from(java.time.Instant.now().minus(olderThan)));
