@@ -14,7 +14,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param staleThreshold  a category is stale when every one of its clues has been shown this many times
  * @param cooldown        how long after researching a category before it may be queued again
  * @param fanWikis        allow-listed MediaWiki fan wikis: "Keyword, Other Keyword = https://host/w/api.php"
- * @param blockedHosts    never contacted, even if listed above (Fandom's terms forbid scraping and AI use)
+ * @param blockedHosts    hosts never contacted even if listed above (empty: every listed wiki may be read)
  */
 @ConfigurationProperties(prefix = "trivia.research")
 public record ResearchProperties(
@@ -31,7 +31,7 @@ public record ResearchProperties(
         @DefaultValue("2m") Duration launchInterval,
         @DefaultValue("60000") int maxArticleChars,
         @DefaultValue List<String> fanWikis,
-        @DefaultValue({"fandom.com", "wikia.com", "wikia.org"}) List<String> blockedHosts) {
+        @DefaultValue List<String> blockedHosts) {
 
     public boolean jobMode() {
         return "job".equalsIgnoreCase(mode);

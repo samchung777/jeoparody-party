@@ -100,7 +100,7 @@ public class ResearchService {
      * groups and exact page); anything else is parsed as a topic line.
      */
     WikiText.TopicSpec specFor(ResearchTask task) {
-        if (ResearchTask.STALE.equals(task.kind())) {
+        if (ResearchTask.STALE.equals(task.kind()) || ResearchTask.FAN_WIKI.equals(task.kind())) {
             Optional<String> original = repository.wikiTopicFor(task.topic());
             if (original.isPresent()) {
                 WikiText.TopicSpec s = WikiText.parseTopic(original.get());
@@ -115,6 +115,12 @@ public class ResearchService {
     private Optional<WikiPage> sources(ResearchTask task, WikiText.TopicSpec spec, List<String> used)
             throws IOException, InterruptedException {
         Optional<WikiPage> fan = fanWikis.fetch(spec.keyword());
+        if (ResearchTask.FAN_WIKI.equals(task.kind())) {
+            if (fan.isPresent()) {
+                used.add(FAN_WIKI_SOURCE);
+            }
+            return fan; // the category already has its Wikipedia clues; this pass is the fan wiki only
+        }
         if (ResearchTask.STALE.equals(task.kind()) && fan.isPresent()) {
             used.add(FAN_WIKI_SOURCE);
             return fan;

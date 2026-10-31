@@ -74,6 +74,36 @@ public class ResearchRepository {
     }
 
     /**
+     * Live keywords named in the fan-wiki allow-list that haven't had a fan-wiki pass yet (a failed pass is
+     * retried after the cooldown). {@code names} are lower-case keyword names.
+     */
+    public List<StaleCategory> fanWikiCandidates(java.util.Collection<String> names, Duration cooldown, int limit) {
+        if (names.isEmpty()) {
+            return List.of();
+        }
+        String marks = String.join(",", java.util.Collections.nCopies(names.size(), "?"));
+        List<Object> args = new java.util.ArrayList<>(names);
+        args.add(Timestamp.from(java.time.Instant.now().minus(cooldown)));
+        args.add(limit);
+        return jdbc.query("""
+                SELECT k.id, k.name, COUNT(cl.id) AS clues
+                FROM keyword k
+                LEFT JOIN clue_keyword ck ON ck.keyword_id = k.id
+                LEFT JOIN clue cl ON cl.id = ck.clue_id AND cl.retired_at IS NULL
+                WHERE k.retired_at IS NULL AND LOWER(k.name) IN (%s)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM research_task t
+                      WHERE t.keyword_id = k.id AND t.kind = 'fan_wiki'
+                        AND (t.status <> 'failed' OR t.updated_at > ?))
+                GROUP BY k.id, k.name
+                ORDER BY k.id
+                LIMIT ?
+                """.formatted(marks),
+                (rs, i) -> new StaleCategory(rs.getLong("id"), rs.getString("name"), rs.getInt("clues"), 0),
+                args.toArray());
+    }
+
+    /**
      * Claims the oldest queued task by flipping it to 'running' only if it is still queued, so two workers
      * running at once never take the same task.
      */

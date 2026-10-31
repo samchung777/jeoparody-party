@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -57,6 +58,44 @@ class ResearchServiceIT extends IntegrationTest {
                     "quote " + i, List.of("Theme 1")));
         }
         return out;
+    }
+
+    @BeforeEach
+    void noFanWikisListedByDefault() {
+        when(fanWiki.wikis()).thenReturn(new FanWikis(List.of(), List.of()));
+    }
+
+    @Test
+    void listedFanWikiCategoriesGetOneFanWikiPass() throws Exception {
+        TestData.seedPlayableTrivia(jdbc, 2);
+        when(fanWiki.wikis()).thenReturn(new FanWikis(List.of("Theme 2, Not A Keyword = https://w.example/api.php"),
+                List.of()));
+        when(fanWiki.fetch("Theme 2")).thenReturn(Optional.of(fanPage));
+        when(generator.generate(any(), eq(fanPage), anyInt(), anySet())).thenReturn(clues("Fan", 4));
+
+        ResearchPlanner.Plan plan = planner.plan(null);
+        assertEquals(1, plan.fanWikiPasses(), "only listed keywords that exist");
+        assertEquals(0, plan.staleCategories());
+        assertEquals(1, research.processQueue());
+        Map<String, Object> t = jdbc.queryForMap("SELECT kind, topic, status, sources, clues_added FROM research_task");
+        assertEquals("fan_wiki", t.get("kind"));
+        assertEquals("Theme 2", t.get("topic"));
+        assertEquals("done", t.get("status"));
+        assertEquals("fanwiki", t.get("sources"));
+        assertEquals(4, ((Number) t.get("clues_added")).intValue());
+        verify(wikipedia, never()).fetch(anyString());
+        assertEquals(0, planner.plan(null).fanWikiPasses(), "one pass per category");
+    }
+
+    @Test
+    void aFanWikiPassWithNothingFoundIsNotFoundAndDoesNotUseWikipedia() throws Exception {
+        TestData.seedPlayableTrivia(jdbc, 1);
+        when(fanWiki.wikis()).thenReturn(new FanWikis(List.of("Theme 1 = https://w.example/api.php"), List.of()));
+        when(fanWiki.fetch(anyString())).thenReturn(Optional.empty());
+        planner.plan(null);
+        research.processQueue();
+        assertEquals("not_found", task().get("status"));
+        verify(wikipedia, never()).fetch(anyString());
     }
 
     private void makeStale(String keyword) {
