@@ -53,7 +53,7 @@
   <h2>Research <small style="font-size:14px;opacity:.7">(stale categories and player suggestions)</small></h2>
   <p style="opacity:.85;margin-top:0">When a game ends, categories whose clues have all been shown twice are queued
     for fresh clues (from an allow-listed fan wiki when there is one, otherwise Wikipedia), along with topics players
-    suggested. The work runs in <b id="runsIn">…</b>. Fan wikis allowed: <span id="fanWikis">…</span>.</p>
+    suggested. The work runs in <b id="runsIn">…</b>. Fan wikis allowed: <span id="fanWikis">…</span> (each gets one fan-wiki pass, then is used again when it goes stale).</p>
   <textarea id="researchTopics" rows="2" style="width:100%;font:inherit;padding:8px;border-radius:6px"
             placeholder="Topics to research now, e.g. Gravity Falls, Super Powereds"></textarea>
   <div style="margin-top:8px"><button id="researchBtn">Research these</button>
@@ -232,9 +232,10 @@
   async function loadResearch() {
     const r = await (await adminFetch('/api/admin/research')).json();
     document.getElementById('runsIn').textContent = r.runsIn;
-    document.getElementById('fanWikis').textContent = (r.fanWikis.length ? r.fanWikis.join(', ') : 'none listed')
+    document.getElementById('fanWikis').textContent = (r.fanWikis.length ? `${r.fanWikis.length} categories` : 'none listed')
       + (r.fanWikiProblems.length ? ` (ignored: ${r.fanWikiProblems.join('; ')})` : '');
-    const why = { stale_category: 'all clues seen twice', suggestion: 'suggested in a game', manual: 'added here' };
+    const why = { stale_category: 'all clues seen twice', suggestion: 'suggested in a game', manual: 'added here',
+      fan_wiki: 'fan wiki pass' };
     const icon = { queued: '⏳ queued', running: '🔎 running', done: '✅ done', failed: '⚠️ failed', not_found: '❓ not found' };
     document.getElementById('researchList').innerHTML = r.tasks.length ? r.tasks.map(t => `<tr>
       <td>${esc(t.topic)}${t.gameCode ? ` <small style="opacity:.7">game ${esc(t.gameCode)}</small>` : ''}</td>

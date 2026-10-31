@@ -70,8 +70,9 @@ needs permission to run this one job. Run once, after the first deploy has creat
 gcloud run jobs add-iam-policy-binding jeoparody-research --region us-west1 --member="serviceAccount:$RUN" --role=roles/run.invoker
 ```
 Without it the game server logs a warning and does the research on a background thread instead.
-Fan wikis: only independent MediaWiki wikis listed in `trivia.research.fan-wikis` are used; Fandom
-(`fandom.com`, `wikia.com`, `wikia.org`) is blocked because its terms forbid scraping and AI use.
+Fan wikis: the wikis listed in `trivia.research.fan-wikis` (independent wikis and Fandom wikis) are read
+through their MediaWiki API. Fandom's terms of use forbid scraping and AI use; to stop using it, set the
+`RESEARCH_BLOCKED_HOSTS` environment variable to `fandom.com,wikia.com,wikia.org` on the service and the job.
 
 ## 4. OIDC trust (Workload Identity Federation)
 CircleCI context `gcp-deploy` (ID `9f90f75f-ab47-4a66-94e8-c96cf9901c13`) is restricted to this project and to

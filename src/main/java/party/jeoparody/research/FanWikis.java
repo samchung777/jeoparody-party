@@ -10,8 +10,9 @@ import party.jeoparody.wiki.WikiText;
 
 /**
  * The fan-wiki allow-list. Only wikis listed in trivia.research.fan-wikis are ever contacted, each for the
- * keywords named on its line, and never a blocked host (Fandom and its old Wikia domains, whose terms of use
- * forbid scraping and feeding content to AI). Pure parsing, unit-tested by FanWikisTest.
+ * keywords named on its line, and never a host listed in trivia.research.blocked-hosts (empty by default; list
+ * fandom.com, wikia.com and wikia.org to stop using Fandom, whose terms forbid scraping and AI use).
+ * Pure parsing, unit-tested by FanWikisTest.
  */
 public final class FanWikis {
 
