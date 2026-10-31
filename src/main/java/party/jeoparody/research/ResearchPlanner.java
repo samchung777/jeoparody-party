@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
+import party.jeoparody.wiki.WikiText;
 
 /**
  * Decides what to research, and when. Called when a game ends (and from the library page): it queues
@@ -97,6 +98,27 @@ public class ResearchPlanner {
             launcher.launch();
         }
         return new Plan(stale, suggestions, fanWiki, waiting, launcher.describe());
+    }
+
+    /**
+     * Queues clues from one fan wiki page the host pasted. The category defaults to the page title; groups add
+     * the clues to broader categories too; count is how many clues to ask for (5-40).
+     */
+    public Plan queuePage(String url, String keyword, String groups, Integer count, String note) {
+        FanWikiPageLink link = FanWikiPageLink.parse(url);
+        String category = WikiText.keyword(keyword == null || keyword.isBlank()
+                ? link.title().replaceAll("\\s*\\(.*\\)$", "") : keyword);
+        if (category.isEmpty()) {
+            throw new IllegalArgumentException("Give the category a name");
+        }
+        int n = count == null ? props.cluesPerTask() : Math.max(5, Math.min(40, count));
+        String cleanGroups = groups == null ? "" : String.join(", ", java.util.Arrays.stream(groups.split(","))
+                .map(WikiText::keyword).filter(g -> !g.isEmpty()).toList());
+        String cleanNote = note == null ? "" : note.replaceAll("[{}\\[\\]]", "").strip();
+        String line = category + (cleanGroups.isEmpty() ? "" : " [" + cleanGroups + "]")
+                + " {" + n + (cleanNote.isEmpty() ? "" : ": " + cleanNote) + "}";
+        repository.queuePage(line.length() <= 200 ? line : line.substring(0, 200), link.link().toString());
+        return plan(null);
     }
 
     /** Queues topics typed on the library page. */

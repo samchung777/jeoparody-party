@@ -38,9 +38,11 @@ public class FanWikiClient {
     private final ObjectMapper mapper;
     private final FanWikis wikis;
     private final int maxChars;
+    private final List<String> blockedHosts;
 
     public FanWikiClient(ObjectMapper mapper, ResearchProperties props) {
         this.mapper = mapper;
+        this.blockedHosts = props.blockedHosts();
         this.wikis = new FanWikis(props.fanWikis(), props.blockedHosts());
         this.maxChars = props.maxArticleChars();
         wikis.rejected().forEach(r -> log.warn("Ignoring fan wiki entry: {}", r));
@@ -64,6 +66,53 @@ public class FanWikiClient {
         JsonNode pages = get(api.get(), "action=query&format=json&formatversion=2&redirects=1&prop=info%7Crevisions"
                 + "&inprop=url&rvprop=content&rvslots=main&titles=" + encode(String.join("|", titles)));
         return combine(parsePages(pages, titles), maxChars);
+    }
+
+    /**
+     * One page the host pasted, from any MediaWiki fan wiki (not only allow-listed ones, but never a blocked host).
+     * Tries the allow-listed api.php for that host first, then the usual api.php locations; story sections only.
+     * Empty if the wiki has no such article or it is too short to write clues from.
+     */
+    public Optional<WikiPage> fetchPage(FanWikiPageLink link) throws IOException, InterruptedException {
+        List<URI> apis = new ArrayList<>();
+        wikis.entries().values().stream().filter(a -> a.getHost().equalsIgnoreCase(link.link().getHost()))
+                .findFirst().ifPresent(apis::add);
+        link.apiCandidates().stream().filter(a -> !apis.contains(a)).forEach(apis::add);
+        String blocked = FanWikis.problem(apis.get(0), blockedHosts);
+        if (blocked != null) {
+            throw new IOException("Can't use " + link.link().getHost() + ": " + blocked);
+        }
+        IOException last = null;
+        for (URI api : apis) {
+            JsonNode root;
+            try {
+                root = get(api, "action=query&format=json&formatversion=2&redirects=1&prop=info%7Crevisions"
+                        + "&inprop=url&rvprop=content&rvslots=main&titles=" + encode(link.title()));
+            } catch (IOException e) { // not the API here (404, an HTML page...): try the next location
+                last = e;
+                continue;
+            }
+            if (!root.has("query")) {
+                continue;
+            }
+            return singlePage(root, maxChars);
+        }
+        throw last != null ? last : new IOException("No MediaWiki API found on " + link.link().getHost());
+    }
+
+    /** The one article in a prop=revisions reply, cleaned to its story sections. Package-private for tests. */
+    static Optional<WikiPage> singlePage(JsonNode root, int maxChars) {
+        List<FanPage> pages = parsePages(root, List.of());
+        if (pages.isEmpty()) {
+            return Optional.empty();
+        }
+        FanPage p = pages.get(0);
+        String body = WikiText.cleanArticle(p.text(), maxChars, true);
+        if (body.length() < 500) {
+            return Optional.empty();
+        }
+        long id = Math.abs((p.url() + p.title()).hashCode());
+        return Optional.of(new WikiPage(id, p.title() + " (fan wiki)", p.url(), body));
     }
 
     /** Titles from a list=search reply, in rank order. Package-private for tests. */

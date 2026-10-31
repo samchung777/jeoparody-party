@@ -44,6 +44,13 @@ public class ResearchRepository {
         return keys.getKey().longValue();
     }
 
+    /** Queues clues from one fan wiki page; {@code topicLine} is "Keyword [Groups] {count: note}". */
+    public long queuePage(String topicLine, String pageUrl) {
+        long id = queue(ResearchTask.FAN_WIKI_PAGE, null, topicLine, null);
+        jdbc.update("UPDATE research_task SET page_url = ? WHERE id = ?", pageUrl, id);
+        return id;
+    }
+
     /** A stale category: a keyword whose every live clue has been shown at least the threshold number of times. */
     public record StaleCategory(long keywordId, String name, int clues, int minStaleness) {
     }
@@ -164,11 +171,12 @@ public class ResearchRepository {
 
     private static ResearchTask task(ResultSet rs) throws SQLException {
         long keyword = rs.getLong("keyword_id");
+        Long keywordId = rs.wasNull() ? null : keyword; // wasNull refers to the last column read
         Timestamp updated = rs.getTimestamp("updated_at");
-        return new ResearchTask(rs.getLong("id"), rs.getString("kind"), rs.wasNull() ? null : keyword,
+        return new ResearchTask(rs.getLong("id"), rs.getString("kind"), keywordId,
                 rs.getString("topic"), rs.getString("status"), rs.getString("sources"), rs.getString("source_url"),
                 rs.getInt("clues_added"), rs.getString("error"), rs.getString("game_code"),
-                updated == null ? null : updated.toInstant());
+                updated == null ? null : updated.toInstant(), rs.getString("page_url"));
     }
 
     /** Answer keys of the keyword's live clues, so new clues don't repeat answers it already has. */

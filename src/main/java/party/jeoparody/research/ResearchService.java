@@ -115,6 +115,13 @@ public class ResearchService {
     /** The material to write from: one page, or the fan wiki and Wikipedia combined. Records which were used. */
     private Optional<WikiPage> sources(ResearchTask task, WikiText.TopicSpec spec, List<String> used)
             throws IOException, InterruptedException {
+        if (ResearchTask.FAN_WIKI_PAGE.equals(task.kind())) {
+            Optional<WikiPage> page = fanWikis.fetchPage(FanWikiPageLink.parse(task.pageUrl()));
+            if (page.isPresent()) {
+                used.add(FAN_WIKI_SOURCE);
+            }
+            return page;
+        }
         Optional<WikiPage> fan = fanWikis.fetch(spec.keyword());
         if (ResearchTask.FAN_WIKI.equals(task.kind())) {
             if (fan.isPresent()) {

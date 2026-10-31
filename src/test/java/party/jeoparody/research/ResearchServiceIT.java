@@ -1,6 +1,7 @@
 package party.jeoparody.research;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -114,6 +115,38 @@ class ResearchServiceIT extends IntegrationTest {
                 timedOut));
         assertEquals("failed", jdbc.queryForObject("SELECT status FROM research_task WHERE id = ?", String.class,
                 broken));
+    }
+
+    @Test
+    void aPastedFanWikiPageBecomesClues() throws Exception {
+        WikiPage itachi = new WikiPage(5, "Itachi Uchiha (fan wiki)", "https://naruto.fandom.com/wiki/Itachi_Uchiha",
+                "itachi text");
+        when(fanWiki.fetchPage(any())).thenReturn(Optional.of(itachi));
+        when(generator.generate(any(), eq(itachi), anyInt(), anySet())).thenReturn(clues("Itachi", 3));
+
+        planner.queuePage("https://naruto.fandom.com/wiki/Itachi_Uchiha", "", "Naruto, Anime", 12, "his {battles}");
+        Map<String, Object> queued = jdbc.queryForMap("SELECT kind, topic, page_url FROM research_task");
+        assertEquals("fan_wiki_page", queued.get("kind"));
+        assertEquals("Itachi Uchiha [Naruto, Anime] {12: his battles}", queued.get("topic"));
+        assertEquals("https://naruto.fandom.com/wiki/Itachi_Uchiha", queued.get("page_url"));
+
+        assertEquals(1, research.processQueue());
+        assertEquals("done", task().get("status"));
+        assertEquals("fanwiki", task().get("sources"));
+        verify(generator).generate(org.mockito.ArgumentMatchers.argThat(spec -> spec.keyword().equals("Itachi Uchiha")
+                && spec.groups().equals(List.of("Naruto", "Anime")) && spec.count() == 12), eq(itachi), eq(12), anySet());
+        verify(wikipedia, never()).fetch(anyString());
+        verify(fanWiki, never()).fetch(anyString());
+        assertEquals(3, TestData.count(jdbc,
+                "SELECT COUNT(*) FROM clue WHERE source_url = 'https://naruto.fandom.com/wiki/Itachi_Uchiha'"),
+                "each clue keeps the page it came from");
+    }
+
+    @Test
+    void badPageLinksAreRefusedBeforeAnythingIsQueued() {
+        assertThrows(IllegalArgumentException.class,
+                () -> planner.queuePage("https://naruto.fandom.com/wiki/Special:Random", null, null, null, null));
+        assertEquals(0, TestData.count(jdbc, "SELECT COUNT(*) FROM research_task"));
     }
 
     private void makeStale(String keyword) {

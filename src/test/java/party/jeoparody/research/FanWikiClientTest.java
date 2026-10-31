@@ -49,4 +49,18 @@ class FanWikiClientTest {
         assertTrue(page.text().contains("== Lander University =="));
         assertTrue(FanWikiClient.combine(List.of(), 4000).isEmpty());
     }
+
+    @Test
+    void aSinglePastedPageKeepsItsStorySectionsAndSkipsStubs() throws Exception {
+        String story = "Itachi Uchiha was a prodigy of the Uchiha clan who joined the Akatsuki. ".repeat(12);
+        var root = mapper.readTree("""
+                {"query":{"pages":[{"pageid":5,"title":"Itachi Uchiha","fullurl":"https://naruto.fandom.com/wiki/Itachi_Uchiha",
+                  "revisions":[{"slots":{"main":{"content":"%s"}}}]}]}}""".formatted(story));
+        var page = FanWikiClient.singlePage(root, 60000).orElseThrow();
+        assertEquals("Itachi Uchiha (fan wiki)", page.title());
+        assertEquals("https://naruto.fandom.com/wiki/Itachi_Uchiha", page.url());
+        assertTrue(page.text().contains("Akatsuki"));
+        assertTrue(FanWikiClient.singlePage(mapper.readTree("""
+                {"query":{"pages":[{"title":"Nope","missing":true}]}}"""), 60000).isEmpty());
+    }
 }
