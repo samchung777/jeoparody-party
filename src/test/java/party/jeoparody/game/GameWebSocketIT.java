@@ -234,6 +234,8 @@ class GameWebSocketIT {
         JsonNode wager = bob.awaitPhase("FINAL_WAGER");
         assertTrue(wager.path("me").path("finalEligible").asBoolean());
         bob.send("wager", Map.of("amount", value));
+        // Bob and the host are separate connections: wait until the host sees the wager before revealing.
+        host.awaitState(s -> s.path("teams").get(1).path("wagered").asBoolean());
         host.send("revealFinalClue");
         bob.awaitPhase("FINAL_ANSWER");
         bob.send("finalAnswer", Map.of("text", "What is the answer?"));

@@ -98,6 +98,24 @@ class ResearchServiceIT extends IntegrationTest {
         verify(wikipedia, never()).fetch(anyString());
     }
 
+    @Test
+    void tasksThatTimedOutAreRetriedOnTheNextRunOthersStayFailed() throws Exception {
+        TestData.seedPlayableTrivia(jdbc, 1);
+        long timedOut = repository.queue(ResearchTask.MANUAL, null, "Theme 1", null);
+        repository.finish(timedOut, "failed", null, null, 0, "request timed out");
+        long broken = repository.queue(ResearchTask.MANUAL, null, "Broken", null);
+        repository.finish(broken, "failed", null, null, 0, "Vertex AI returned HTTP 400");
+        when(fanWiki.fetch(anyString())).thenReturn(Optional.empty());
+        when(wikipedia.fetch("Theme 1")).thenReturn(Optional.of(wikiPage));
+        when(generator.generate(any(), eq(wikiPage), anyInt(), anySet())).thenReturn(clues("Retry", 2));
+
+        assertEquals(1, research.processQueue(), "only the timed-out task is retried");
+        assertEquals("done", jdbc.queryForObject("SELECT status FROM research_task WHERE id = ?", String.class,
+                timedOut));
+        assertEquals("failed", jdbc.queryForObject("SELECT status FROM research_task WHERE id = ?", String.class,
+                broken));
+    }
+
     private void makeStale(String keyword) {
         jdbc.update("UPDATE clue cl JOIN clue_keyword ck ON ck.clue_id = cl.id JOIN keyword k ON k.id = ck.keyword_id"
                 + " SET cl.staleness = 2 WHERE k.name = ?", keyword);
