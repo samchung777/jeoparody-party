@@ -51,6 +51,29 @@ public class ResearchController {
         return planner.plan(null);
     }
 
+    /**
+     * POST /api/admin/research/page, body {"url", "keyword", "groups", "count", "note"}: write clues from one fan
+     * wiki page. Only url is required.
+     */
+    @PostMapping("/page")
+    public ResponseEntity<?> page(@RequestBody Map<String, Object> body) {
+        try {
+            Object count = body.get("count");
+            Integer n = count == null || count.toString().isBlank() ? null : Integer.valueOf(count.toString().strip());
+            return ResponseEntity.ok(planner.queuePage(str(body, "url"), str(body, "keyword"), str(body, "groups"), n,
+                    str(body, "note")));
+        } catch (NumberFormatException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", "How many clues must be a number"));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    private static String str(Map<String, Object> body, String key) {
+        Object v = body.get(key);
+        return v == null ? null : v.toString();
+    }
+
     /** POST /api/admin/research/topics, body {"topics": "Gravity Falls, Avatar"}: research these topics. */
     @PostMapping("/topics")
     public ResponseEntity<?> topics(@RequestBody Map<String, String> body) {

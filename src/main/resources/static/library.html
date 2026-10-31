@@ -59,6 +59,19 @@
   <div style="margin-top:8px"><button id="researchBtn">Research these</button>
     <button id="planBtn" class="secondary">Check for stale categories now</button>
     <span id="researchMsg" style="margin-left:12px;opacity:.85"></span></div>
+
+  <h3 style="margin-bottom:4px">Clues from a fan wiki page</h3>
+  <p style="opacity:.85;margin-top:0">Paste the link of one article on any fan wiki (Fandom or independent), e.g.
+    <code>https://naruto.fandom.com/wiki/Itachi_Uchiha</code>. Gemini writes clues from that page only.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px">
+    <input id="pageUrl" type="url" placeholder="https://…/wiki/Page_name" style="grid-column:1/-1;padding:8px;border-radius:6px">
+    <input id="pageKeyword" placeholder="Category name (default: page title)" style="padding:8px;border-radius:6px">
+    <input id="pageGroups" placeholder="Also add to, e.g. Naruto, Anime" style="padding:8px;border-radius:6px">
+    <input id="pageCount" type="number" min="5" max="40" value="20" title="How many clues" style="padding:8px;border-radius:6px">
+    <input id="pageNote" placeholder="Optional focus, e.g. his battles" style="padding:8px;border-radius:6px">
+  </div>
+  <div style="margin-top:8px"><button id="pageBtn">Write clues from this page</button>
+    <span id="pageMsg" style="margin-left:12px;opacity:.85"></span></div>
   <table style="margin-top:8px"><thead><tr><th>Topic</th><th>Why</th><th>Status</th><th>Source</th><th class="n">Clues</th></tr></thead>
     <tbody id="researchList"><tr><td colspan="5">Loading…</td></tr></tbody></table>
   <h3>Suggestions from games</h3>
@@ -226,8 +239,8 @@
     document.getElementById('wikiMsg').textContent = res.ok ? `Queued ${data.queued.length} topic(s).` : data.message;
     if (res.ok) document.getElementById('wikiTopics').value = '';
     loadWiki();
+  });
 
-  // Behind-the-scenes review status (ReviewController).
   // ---- Research: stale categories, suggestions, fan-wiki allow-list (ResearchController)
   async function loadResearch() {
     const r = await (await adminFetch('/api/admin/research')).json();
@@ -235,10 +248,10 @@
     document.getElementById('fanWikis').textContent = (r.fanWikis.length ? `${r.fanWikis.length} categories` : 'none listed')
       + (r.fanWikiProblems.length ? ` (ignored: ${r.fanWikiProblems.join('; ')})` : '');
     const why = { stale_category: 'all clues seen twice', suggestion: 'suggested in a game', manual: 'added here',
-      fan_wiki: 'fan wiki pass' };
+      fan_wiki: 'fan wiki pass', fan_wiki_page: 'fan wiki page' };
     const icon = { queued: '⏳ queued', running: '🔎 running', done: '✅ done', failed: '⚠️ failed', not_found: '❓ not found' };
     document.getElementById('researchList').innerHTML = r.tasks.length ? r.tasks.map(t => `<tr>
-      <td>${esc(t.topic)}${t.gameCode ? ` <small style="opacity:.7">game ${esc(t.gameCode)}</small>` : ''}</td>
+      <td>${esc(t.topic)}${t.gameCode ? ` <small style="opacity:.7">game ${esc(t.gameCode)}</small>` : ''}${t.pageUrl ? `<br><small style="opacity:.7">${esc(t.pageUrl)}</small>` : ''}</td>
       <td>${why[t.kind] || esc(t.kind)}</td>
       <td>${icon[t.status] || esc(t.status)}${t.error ? `<br><small style="opacity:.7">${esc(t.error)}</small>` : ''}</td>
       <td>${t.sourceUrl ? `<a href="${esc(t.sourceUrl)}" target="_blank" rel="noopener">${esc(t.sources || 'source')}</a>` : esc(t.sources || '')}</td>
@@ -260,6 +273,18 @@
     if (res.ok) document.getElementById('researchTopics').value = '';
     loadResearch();
   });
+  // One fan wiki page -> clues (POST /api/admin/research/page). Validation messages come from the server.
+  document.getElementById('pageBtn').addEventListener('click', async () => {
+    const val = id => document.getElementById(id).value.trim();
+    if (!val('pageUrl')) return;
+    const res = await adminFetch('/api/admin/research/page', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: val('pageUrl'), keyword: val('pageKeyword'), groups: val('pageGroups'),
+        count: val('pageCount'), note: val('pageNote') }) });
+    const data = await res.json();
+    document.getElementById('pageMsg').textContent = res.ok ? `Queued; ${data.waiting} waiting (${data.runsIn}).` : data.message;
+    if (res.ok) ['pageUrl', 'pageKeyword', 'pageNote'].forEach(id => { document.getElementById(id).value = ''; });
+    loadResearch();
+  });
   document.getElementById('planBtn').addEventListener('click', async () => {
     const data = await (await adminFetch('/api/admin/research', { method: 'POST' })).json();
     document.getElementById('researchMsg').textContent =
@@ -267,6 +292,8 @@
     loadResearch();
   });
 
+
+  // Behind-the-scenes review status (ReviewController).
   async function loadReview() {
     const r = await (await adminFetch('/api/admin/review')).json();
     document.getElementById('reviewStatus').textContent = r.enabled
@@ -276,7 +303,6 @@
   }
   loadReview();
   loadResearch();
-  });
   loadWiki();
 
   document.getElementById('enrichBtn').addEventListener('click', async () => {
