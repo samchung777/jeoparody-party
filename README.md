@@ -17,7 +17,10 @@ gcloud auth application-default login
 gcloud auth application-default set-quota-project jeoparody-party
 ```
 
+Database credentials live in a git-ignored `.env` file, read by both Docker Compose and the app:
+
 ```powershell
+Copy-Item .env.example .env   # then fill in the passwords in .env (no quotes)
 docker compose up -d          # starts MySQL on localhost:3306
 .\mvnw.cmd spring-boot:run    # macOS/Linux: ./mvnw spring-boot:run
 ```
@@ -79,7 +82,8 @@ Live games are held in memory (single instance) and pushed to every screen over 
 | Integration (Failsafe) | `*IT.java` | Flyway migrations and SQL against real MySQL, clue feedback, a full game over WebSockets |
 
 Integration tests use a separate `jeopardy_test` database (created automatically) and never call Open
-Trivia DB or Gemini. Override the connection with `TEST_DB_URL`, `TEST_DB_USER`, `TEST_DB_PASSWORD`.
+Trivia DB or Gemini. The connection comes from `TEST_DB_USER` / `TEST_DB_PASSWORD` (and optionally
+`TEST_DB_URL`): from `.env` locally, from the project's environment variables in CircleCI.
 JUnit XML reports land in `target/surefire-reports` and `target/failsafe-reports`.
 
 ## Containers and scripts

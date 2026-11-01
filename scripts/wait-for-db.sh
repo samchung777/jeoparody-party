@@ -5,8 +5,8 @@
 # Usage: scripts/wait-for-db.sh            (settings from env vars below)
 #   DB_HOST     default 127.0.0.1
 #   DB_PORT     default 3306
-#   DB_USER     default root
-#   DB_PASSWORD default rootpw
+#   DB_USER     required (CI: root, which has no password in the throwaway sidecar)
+#   DB_PASSWORD may be empty
 #   DB_WAIT_SECONDS  default 90
 # Used by: the test job, before `mvn verify`; the MySQL sidecar needs a few seconds after the job starts.
 # Why: without it, integration tests could fail randomly depending on how fast MySQL starts.
@@ -14,8 +14,8 @@ set -euo pipefail
 
 host="${DB_HOST:-127.0.0.1}"
 port="${DB_PORT:-3306}"
-user="${DB_USER:-root}"
-password="${DB_PASSWORD:-rootpw}"
+user="${DB_USER:?set DB_USER}"
+password="${DB_PASSWORD:-}"
 timeout="${DB_WAIT_SECONDS:-90}"
 
 log() { printf '[wait-for-db] %s\n' "$*"; }

@@ -1,10 +1,11 @@
 # Integration tests run against a separate database so your real trivia is never touched.
-# Locally: the docker-compose MySQL (root/rootpw). In CircleCI: the MySQL sidecar container.
+# Locally: the docker-compose MySQL, credentials from .env. In CircleCI: the MySQL sidecar container, with
+# TEST_DB_USER / TEST_DB_PASSWORD from the project's environment variables (the test job creates that user).
 spring:
   datasource:
     url: ${TEST_DB_URL:jdbc:mysql://localhost:3306/jeopardy_test?createDatabaseIfNotExist=true}
-    username: ${TEST_DB_USER:root}
-    password: ${TEST_DB_PASSWORD:rootpw}
+    username: ${TEST_DB_USER}
+    password: ${TEST_DB_PASSWORD}
 
 trivia:
   import-on-startup: false     # never call Open Trivia DB from tests
