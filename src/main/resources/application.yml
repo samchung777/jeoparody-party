@@ -6,11 +6,17 @@ spring:
   application:
     # Shows up in logs ('[jeoparody-party]') and Actuator.
     name: jeoparody-party
+  config:
+    # Local development: credentials live in a git-ignored .env file in the project folder (copy .env.example).
+    # Docker Compose reads the same file. In CircleCI and Cloud Run there is no .env: env vars are used instead.
+    import: optional:file:.env[.properties]
   datasource:
-    # Defaults point at the docker-compose MySQL; CI and Cloud Run override via env vars.
+    # The URL defaults to the docker-compose MySQL. The user name and password have no defaults on purpose:
+    # they come from .env locally, from CircleCI environment variables in CI, and on Cloud Run
+    # application-cloud.yml replaces them (IAM database authentication: no password exists).
     url: ${DB_URL:jdbc:mysql://localhost:3306/jeopardy}
-    username: ${DB_USER:jeopardy}
-    password: ${DB_PASSWORD:jeopardy}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
   # Run database migrations on start-up (see db/migration). This is how schema changes deploy.
   flyway:
     # Migrations live in src/main/resources/db/migration and are never edited once released: Flyway

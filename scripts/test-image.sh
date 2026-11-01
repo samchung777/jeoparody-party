@@ -34,14 +34,24 @@ trap cleanup EXIT
 log "network $network"
 docker network create "$network" >/dev/null
 
+# Credentials for the throwaway MySQL: CircleCI project environment variables (locally: export them, or
+# source .env). Root gets a random password nobody needs.
+db_user="${TEST_DB_USER:?set TEST_DB_USER}"
+db_password="${TEST_DB_PASSWORD:?set TEST_DB_PASSWORD}"
+if [[ "$db_user" == "root" ]]; then
+  db_user="jeoparody_smoke" # MYSQL_USER can't be root; any name works for this throwaway database
+fi
+
 log "starting MySQL"
 docker run -d --name "$db" --network "$network" \
-  -e MYSQL_DATABASE=jeopardy -e MYSQL_USER=jeopardy -e MYSQL_PASSWORD=jeopardy -e MYSQL_ROOT_PASSWORD=rootpw \
+  -e MYSQL_DATABASE=jeopardy -e MYSQL_USER="$db_user" -e MYSQL_PASSWORD="$db_password" \
+  -e MYSQL_RANDOM_ROOT_PASSWORD=yes \
   mysql:8.4 >/dev/null
 
 log "waiting for MySQL"
 for i in $(seq 1 45); do
-  if docker exec "$db" mysql -ujeopardy -pjeopardy -h 127.0.0.1 -e 'SELECT 1' jeopardy >/dev/null 2>&1; then
+  if docker exec -e MYSQL_PWD="$db_password" "$db" mysql -u"$db_user" -h 127.0.0.1 -e 'SELECT 1' jeopardy \
+      >/dev/null 2>&1; then
     break
   fi
   if (( i == 45 )); then log "MySQL did not start" >&2; exit 1; fi
@@ -50,7 +60,7 @@ done
 
 log "starting $image"
 docker run -d --name "$app" --network "$network" \
-  -e DB_URL="jdbc:mysql://$db:3306/jeopardy" -e DB_USER=jeopardy -e DB_PASSWORD=jeopardy \
+  -e DB_URL="jdbc:mysql://$db:3306/jeopardy" -e DB_USER="$db_user" -e DB_PASSWORD="$db_password" \
   -e TRIVIA_IMPORT_ON_STARTUP=false -e TRIVIA_ENRICHMENT_ENABLED=false \
   -e TRIVIA_WIKI_ENABLED=false -e TRIVIA_WIKI_SEED=false \
   "$image" >/dev/null

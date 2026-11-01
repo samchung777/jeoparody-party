@@ -34,9 +34,13 @@ executors:
       - image: us-west1-docker.pkg.dev/jeoparody-party/ci/jeoparody-ci:<< pipeline.parameters.ci-image-tag >>
       # Secondary container (sidecar): starts with the job, shares its network, gone when the job ends,
       # so every test run gets a fresh, empty database.
+      # CircleCI does not pass project or context env vars into secondary containers, so no password can be
+      # set here without writing it in this file. Instead root starts with no password (reachable only from
+      # this job, for a few minutes), and the test job creates the test user from TEST_DB_USER /
+      # TEST_DB_PASSWORD (project environment variables) before the tests run.
       - image: mysql:8.4
         environment:
-          MYSQL_ROOT_PASSWORD: rootpw
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
     resource_class: medium
     environment: *gcp-env
   gcloud:
@@ -84,8 +88,28 @@ jobs:
       # Clone the commit being built into ~/project.
       - checkout
       - run:
+          name: Check the test database credentials are set
+          command: |
+            if [ -z "${TEST_DB_USER:-}" ] || [ -z "${TEST_DB_PASSWORD:-}" ]; then
+              echo "Set TEST_DB_USER and TEST_DB_PASSWORD in Project Settings > Environment Variables" >&2
+              exit 1
+            fi
+      - run:
           name: Wait for the MySQL sidecar
+          # Root has no password in the sidecar (see the executor); only this job can reach it.
+          environment:
+            DB_USER: root
+            DB_PASSWORD: ""
           command: bash scripts/wait-for-db.sh
+      - run:
+          name: Create the test database user from CircleCI env vars
+          # The SQL goes in on stdin, so the password never shows in the process list; CircleCI also masks
+          # environment variable values in the job output. Use letters and digits only (no quotes).
+          command: |
+            mysql --protocol=TCP -h 127.0.0.1 -u root <<SQL
+            CREATE USER IF NOT EXISTS '${TEST_DB_USER}'@'%' IDENTIFIED BY '${TEST_DB_PASSWORD}';
+            GRANT ALL PRIVILEGES ON jeopardy_test.* TO '${TEST_DB_USER}'@'%';
+            SQL
       # mvn verify = compile, unit tests (Surefire), build the jar, integration tests against MySQL (Failsafe).
       # Any failing test fails the job, and nothing downstream runs (`requires` in the workflow).
       - run:
@@ -127,6 +151,7 @@ jobs:
           command: docker build --build-arg GIT_SHA="$CIRCLE_SHA1" -t "$APP_IMAGE" .
       - run:
           name: Test the image (app + MySQL containers, smoke test)
+          # Uses TEST_DB_USER / TEST_DB_PASSWORD (project environment variables) for the throwaway MySQL.
           command: bash scripts/test-image.sh "$APP_IMAGE"
       # Step-level condition on a pipeline value: feature branches skip saving the image (saves time and storage).
       - when:   # only main deploys, so only main hands the image on

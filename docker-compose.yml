@@ -1,4 +1,5 @@
-# Local development database only. Passwords here are throwaway dev values.
+# Local development database only. Credentials come from the git-ignored .env file (copy .env.example);
+# Compose reads it automatically and refuses to start if a value is missing.
 # Where it fits: `docker compose up -d` gives you the same MySQL 8.4 the CircleCI test job uses as a sidecar,
 # so integration tests (`mvnw verify`) run the same way on your laptop as in the pipeline.
 services:
@@ -7,20 +8,22 @@ services:
     image: mysql:8.4
     container_name: jeoparody-mysql
     # First start creates the 'jeopardy' database and user. Root is used by tests to create 'jeopardy_test'.
+    # These only apply when the data volume is new: changing them later means `docker compose down -v` (wipes
+    # local data) or changing the passwords inside MySQL.
     environment:
       MYSQL_DATABASE: jeopardy
-      MYSQL_USER: jeopardy
-      MYSQL_PASSWORD: jeopardy
-      MYSQL_ROOT_PASSWORD: rootpw
+      MYSQL_USER: ${DB_USER:?set DB_USER in .env}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
     ports:
       # Publish MySQL on localhost:3306, the default in application.yml and application-test.yml.
       - "3306:3306"
     volumes:
       # Named volume: your local trivia survives container restarts.
       - mysql-data:/var/lib/mysql
-    # Lets the 'app' service (and you) wait until MySQL actually answers.
+    # Lets the 'app' service (and you) wait until MySQL actually answers. $$ = the container's own env var.
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ujeopardy", "-pjeopardy"]
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysqladmin ping -h 127.0.0.1 -u\"$$MYSQL_USER\""]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -37,8 +40,8 @@ services:
         condition: service_healthy
     environment:
       DB_URL: jdbc:mysql://mysql:3306/jeopardy
-      DB_USER: jeopardy
-      DB_PASSWORD: jeopardy
+      DB_USER: ${DB_USER:?set DB_USER in .env}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
       TRIVIA_IMPORT_ON_STARTUP: "false"
       TRIVIA_ENRICHMENT_ENABLED: "false"   # no Google credentials inside the container
     ports:
