@@ -1,0 +1,87 @@
+# Rollback pipeline for CircleCI Smart Deployments / Deploys. A separate pipeline definition (Project Settings >
+# Project Setup), registered as the project's Rollback Pipeline (Project Settings > Deploys). It runs when someone
+# clicks Rollback on the Deploys page, or automatically when release validation fails (release-jeoparody).
+#
+# CircleCI fills in the pipeline.deploy.* values. target_version is the commit SHA of the release to go back to,
+# which is also the app image tag, so the rollback is just a Cloud Run traffic switch to that revision: seconds,
+# no rebuild. Database migrations only ever add things, so the older code runs fine on the current database.
+version: 2.1
+
+jobs:
+  rollback-component:
+    docker:
+      - image: google/cloud-sdk:slim
+    resource_class: small
+    environment:
+      GCP_PROJECT_ID: jeoparody-party
+      GCP_PROJECT_NUMBER: "20016506594"
+      REGION: us-west1
+      SERVICE: jeoparody-party
+      COMPONENT_NAME: << pipeline.deploy.component_name >>
+      NAMESPACE: << pipeline.deploy.namespace >>
+      ENVIRONMENT_NAME: << pipeline.deploy.environment_name >>
+      TARGET_VERSION: << pipeline.deploy.target_version >>
+    steps:
+      - checkout   # for scripts/gcp-oidc-login.sh and scripts/smoke-test.sh
+      - run:
+          name: Plan the rollback (Deploys page)
+          command: |
+            circleci run release plan \
+              --environment-name="${ENVIRONMENT_NAME}" --namespace="${NAMESPACE}" \
+              --component-name="${COMPONENT_NAME}" --target-version="${TARGET_VERSION}" --rollback
+      - run:
+          name: Mark the rollback running
+          command: circleci run release update --status=RUNNING
+      - run:
+          name: Sign gcloud in (OIDC -> circleci-deploy)
+          command: bash scripts/gcp-oidc-login.sh "circleci-deploy@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
+      - run:
+          # Every revision runs an image tagged with its commit SHA, so the target version names the revision.
+          name: Move all traffic to the target version's revision
+          command: |
+            image="us-west1-docker.pkg.dev/${GCP_PROJECT_ID}/jeoparody/app:${TARGET_VERSION}"
+            revision=$(gcloud run revisions list --service="$SERVICE" --region="$REGION" \
+              --format='value(metadata.name,spec.containers[0].image)' | awk -v img="$image" '$2 == img { print $1; exit }')
+            if [ -z "$revision" ]; then
+              echo "FAILURE_REASON=no Cloud Run revision runs ${image}" > failure_reason.env
+              echo "No revision found for ${image}" >&2
+              exit 1
+            fi
+            echo "rolling back to revision $revision"
+            gcloud run services update-traffic "$SERVICE" --region="$REGION" --to-revisions="${revision}=100" --quiet
+            # Keep the research worker on the same code as the site.
+            gcloud run jobs update jeoparody-research --region="$REGION" --image="$image" --quiet
+      - run:
+          name: Smoke-test the live service
+          command: sh scripts/smoke-test.sh "$(gcloud run services describe "$SERVICE" --region="$REGION" --format='value(status.url)')"
+      - run:
+          name: Mark the rollback succeeded
+          when: on_success
+          command: circleci run release update --status=SUCCESS
+      - run:
+          name: Mark the rollback failed
+          when: on_fail
+          command: |
+            if [ -f failure_reason.env ]; then . ./failure_reason.env; fi
+            circleci run release update --status=FAILED --failure-reason="${FAILURE_REASON:-rollback job failed}"
+
+  cancel-rollback:
+    docker:
+      - image: cimg/base:current
+    resource_class: small
+    steps:
+      - run:
+          name: Mark the rollback canceled
+          command: circleci run release update --status=CANCELED
+
+workflows:
+  rollback:
+    jobs:
+      # gcp-deploy is restricted to main, and Google only lets main with that context use circleci-deploy,
+      # so this pipeline definition must check out the main branch.
+      - rollback-component:
+          context: gcp-deploy
+      - cancel-rollback:
+          requires:
+            - rollback-component:
+              - canceled

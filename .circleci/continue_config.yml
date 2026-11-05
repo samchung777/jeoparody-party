@@ -196,12 +196,20 @@ jobs:
     environment:
       SERVICE: jeoparody-party
       REGION: us-west1
+      RELEASE_NAME: jeoparody-release   # the deploy name shared by the deploy markers and release-jeoparody
     steps:
       - attach_workspace:
           at: .
       - run:
           name: Sign gcloud in (OIDC -> circleci-deploy)
           command: bash scripts/gcp-oidc-login.sh "circleci-deploy@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
+      - run:
+          # Smart Deployments: a deploy marker. The release shows on CircleCI's Deploys page as pending, labelled
+          # with the commit SHA (the same tag as the image, so a rollback knows which revision to go back to).
+          name: Plan the release (Deploys page)
+          command: |
+            circleci run release plan "$RELEASE_NAME" \
+              --environment-name=production --component-name="$SERVICE" --target-version="$CIRCLE_SHA1"
       - run:
           # The research worker: same image, started by the game server (Admin API jobs.run) after a game ends.
           # RESEARCH_WORKER=true makes it drain the research queue once and exit; APP_STARTUP_JOBS=false keeps the
@@ -233,7 +241,60 @@ jobs:
           command: gcloud run services update-traffic "$SERVICE" --region="$REGION" --to-latest --quiet
       - run:
           name: Smoke-test the live service
-          command: sh scripts/smoke-test.sh "$(gcloud run services describe "$SERVICE" --region="$REGION" --format='value(status.url)')"
+          command: |
+            url=$(gcloud run services describe "$SERVICE" --region="$REGION" --format='value(status.url)')
+            echo "$url" > live-url.txt   # the watch-live job checks this URL during release validation
+            sh scripts/smoke-test.sh "$url"
+      - run:
+          # Live and smoke-tested: the release job's validation window starts now (see release-jeoparody).
+          name: Mark the release running
+          command: circleci run release update "$RELEASE_NAME" --status=running
+      - run:
+          # Any failed step above (candidate smoke test, promote, live smoke test) marks the release failed. Users
+          # were never moved off the old revision unless the promote step had run.
+          name: Mark the release failed
+          when: on_fail
+          command: circleci run release update "$RELEASE_NAME" --status=FAILED --failure-reason="deploy job failed" || true
+      - persist_to_workspace:
+          root: .
+          paths:
+            - live-url.txt
+
+  watch-live:
+    description: Release validation signal - re-run the live smoke test every minute and report failures to CircleCI
+    # Smart Deployments judges a release by signals sent to CircleCI during the validation window. This project
+    # has no monitoring tool, so this job is the monitor: two failed checks in a row send a "triggered" signal,
+    # and release-jeoparody rolls back automatically through the rollback pipeline (.circleci/rollback.yml).
+    docker:
+      - image: cimg/base:current
+    resource_class: small
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          name: Watch the live site for 10 minutes
+          command: bash scripts/watch-live.sh "$(cat live-url.txt)"
+
+  release-jeoparody:
+    # A release job has no steps: CircleCI watches for validation signals for evaluation_time after the deploy
+    # marks the release running. A "triggered" signal fails the release, and auto_rollback_on_failure starts the
+    # rollback pipeline, which moves traffic back to the last successful release.
+    type: release
+    plan_name: jeoparody-release
+    validation:
+      enabled: true
+      evaluation_time: 12m   # longer than watch-live's 10 minutes, so its last signal lands inside the window
+      auto_rollback_on_failure: true
+      webhooks:
+        - name: live_smoke
+          provider: custom
+          data_points:
+            component_name: request.component_name
+            version: request.version
+            env: request.env
+            signal_name: request.signal_name
+            criteria: request.alert_transition
+          fail_when: 'criteria == "triggered"'
 
   skip-build:
     description: Placeholder so documentation-only changes still report a green status
@@ -266,6 +327,17 @@ workflows:
       - deploy:
           context: gcp-deploy
           requires: [ publish ]
+          filters:
+            branches:
+              only: main
+      # Smart Deployments: validate the live release for 12 minutes; roll back automatically if it fails.
+      - release-jeoparody:
+          requires: [ deploy ]
+          filters:
+            branches:
+              only: main
+      - watch-live:
+          requires: [ deploy ]
           filters:
             branches:
               only: main
