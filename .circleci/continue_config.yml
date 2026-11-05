@@ -105,8 +105,10 @@ jobs:
           name: Create the test database user from CircleCI env vars
           # The SQL goes in on stdin, so the password never shows in the process list; CircleCI also masks
           # environment variable values in the job output. Use letters and digits only (no quotes).
+          # The backslash before the heredoc marker is required: CircleCI 2.1 treats two less-than signs as
+          # the start of a parameter, so they must be escaped with a backslash in config.
           command: |
-            mysql --protocol=TCP -h 127.0.0.1 -u root <<SQL
+            mysql --protocol=TCP -h 127.0.0.1 -u root \<<SQL
             CREATE USER IF NOT EXISTS '${TEST_DB_USER}'@'%' IDENTIFIED BY '${TEST_DB_PASSWORD}';
             GRANT ALL PRIVILEGES ON jeopardy_test.* TO '${TEST_DB_USER}'@'%';
             SQL
