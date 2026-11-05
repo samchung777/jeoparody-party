@@ -231,8 +231,12 @@ jobs:
       - run:
           name: Smoke-test the candidate
           command: |
-            url=$(gcloud run services describe "$SERVICE" --region="$REGION" --format=json \
-              | python3 -c 'import json,sys; t=json.load(sys.stdin)["status"]["traffic"]; print(next(x["url"] for x in t if x.get("tag")=="candidate"))')
+            # Tagged revisions get their own URL, https://<tag>---<service host>. gcloud prints every traffic
+            # entry's URL (only tagged ones have one), so pick the candidate's. No Python needed: the
+            # google/cloud-sdk:slim image no longer ships python3.
+            url=$(gcloud run services describe "$SERVICE" --region="$REGION" --format='value(status.traffic.url)' \
+              | tr ';,' '\n\n' | grep -m1 '^https://candidate---' || true)
+            if [ -z "$url" ]; then echo "No candidate URL found" >&2; exit 1; fi
             echo "candidate: $url"
             sh scripts/smoke-test.sh "$url"
       - run:
