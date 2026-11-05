@@ -74,6 +74,18 @@ Fan wikis: the wikis listed in `trivia.research.fan-wikis` (independent wikis an
 through their MediaWiki API. Fandom's terms of use forbid scraping and AI use; to stop using it, set the
 `RESEARCH_BLOCKED_HOSTS` environment variable to `fandom.com,wikia.com,wikia.org` on the service and the job.
 
+## 3d. CircleCI Smart Deployments (release validation + automatic rollback)
+The deploy job logs each release on CircleCI's **Deploys** page (deploy markers, version = commit SHA). The
+`release-jeoparody` job then validates the live release for 12 minutes: `watch-live` re-runs the smoke test every
+minute and, after two failures in a row, sends a `triggered` signal; CircleCI fails the release and runs the
+rollback pipeline (`.circleci/rollback.yml`), which moves traffic back to the last good revision.
+One-time setup in CircleCI (an organization admin; the CircleCI GitHub App must be installed):
+1. **Organization Settings > Deploys > Webhook secrets**: generate a secret (shown once).
+2. **Project Settings > Environment Variables**: add it as `CIRCLECI_DEPLOY_WEBHOOK_SECRET`.
+3. **Project Settings > Project Setup**: add a pipeline definition with config file `.circleci/rollback.yml`,
+   checking out branch `main` (the `gcp-deploy` context and Google's OIDC rule only allow main).
+4. **Project Settings > Deploys**: choose that definition as the **Rollback Pipeline**.
+
 ## 4. OIDC trust (Workload Identity Federation)
 CircleCI context `gcp-deploy` (ID `9f90f75f-ab47-4a66-94e8-c96cf9901c13`) is restricted to this project and to
 `pipeline.git.branch == "main"`. Google checks the branch and the context again (defense in depth).
